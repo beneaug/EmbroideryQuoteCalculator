@@ -299,7 +299,8 @@ def calculate_costs(design_info, job_inputs):
     # 5. Production time calculation
     # Get productivity rate based on the selected options
     complex_production = job_inputs.get("complex_production", False)
-    productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
+    custom_rate = job_inputs.get("custom_productivity_rate")
+    productivity_rate = get_productivity_rate(complex_production, coloreel_enabled, custom_rate)
     
     # Stitching time (in minutes) - adjusted by productivity rate
     # Lower productivity rate means slower stitching (more time)
@@ -634,10 +635,13 @@ def get_download_link(buffer, filename, text):
     href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">{text}</a>'
     return href
 
-def get_productivity_rate(complex_production, coloreel_enabled):
+def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None):
     """Calculate productivity rate based on the selected options"""
+    # If a custom rate is provided, use it
+    if custom_rate is not None:
+        return float(custom_rate)
     # If Coloreel is enabled, use the Coloreel productivity rate
-    if coloreel_enabled:
+    elif coloreel_enabled:
         return float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
     # If complex production is enabled, use the complex productivity rate
     elif complex_production:
@@ -753,14 +757,40 @@ def main():
             complex_production = st.checkbox("Complex Production", value=False,
                                          help="Enable for complex designs that require slower stitching and additional attention")
             
+            # Custom productivity rate slider (only shown when complex production is enabled)
+            custom_productivity_rate = None
+            if complex_production:
+                # Calculate default based on complex production
+                default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+                min_rate = 0.2  # 20% efficiency
+                max_rate = 1.0  # 100% efficiency
+                step = 0.05
+                
+                custom_productivity_rate = st.slider(
+                    "Productivity Rate", 
+                    min_value=min_rate,
+                    max_value=max_rate,
+                    value=default_rate,
+                    step=step,
+                    format="%.2f",
+                    help="Adjust the productivity rate (lower values = slower production)"
+                )
+                
+                st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
+            
             # Coloreel ITCU checkbox
             coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
                                        help="Enable if using Coloreel instant thread coloring technology")
             
-            # If Coloreel is enabled, automatically enable complex production
-            if coloreel_enabled and not complex_production:
-                complex_production = True
-                st.info("Complex Production automatically enabled with Coloreel ITCU")
+            # If Coloreel is enabled, automatically enable complex production and use Coloreel rate
+            if coloreel_enabled:
+                if not complex_production:
+                    complex_production = True
+                    st.info("Complex Production automatically enabled with Coloreel ITCU")
+                
+                # Override custom productivity rate with Coloreel rate
+                custom_productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+                st.caption(f"Coloreel Productivity Rate: {custom_productivity_rate:.2f} ({int(custom_productivity_rate * 100)}% efficiency)")
             
             # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
@@ -768,9 +798,15 @@ def main():
                 active_heads = coloreel_max_heads
                 st.warning(f"Max heads limited to {coloreel_max_heads} with Coloreel enabled")
                 
-            # Display productivity rate based on selected options
-            productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
-            st.caption(f"Productivity Rate: {productivity_rate:.2f} ({int(productivity_rate * 100)}% efficiency)")
+            # Calculate the final productivity rate based on all settings
+            if not complex_production:
+                productivity_rate = float(DEFAULT_PRODUCTIVITY_RATE)
+            elif coloreel_enabled:
+                productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+            elif custom_productivity_rate is not None:
+                productivity_rate = custom_productivity_rate
+            else:
+                productivity_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
         
         with col2:
             thread_weight = st.selectbox("Thread Weight", 
@@ -879,7 +915,8 @@ def main():
                 "use_foam": use_foam,
                 "markup_percentage": markup_percentage,
                 "setup_fee": setup_fee,
-                "digitizing_fee": digitizing_fee if 'digitizing_fee' in locals() else 0.0
+                "digitizing_fee": digitizing_fee if 'digitizing_fee' in locals() else 0.0,
+                "custom_productivity_rate": custom_productivity_rate if 'custom_productivity_rate' in locals() and custom_productivity_rate is not None else None
             }
             
             # Calculate all costs
