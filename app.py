@@ -297,9 +297,14 @@ def calculate_costs(design_info, job_inputs):
         foam_cost = sheets_needed * FOAM_SHEET_PRICE
     
     # 5. Production time calculation
-    # Get productivity rate based on the selected options
+    # Get productivity rate - either from the slider value (if provided) or calculated based on settings
     complex_production = job_inputs.get("complex_production", False)
-    productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
+    if "productivity_rate" in job_inputs:
+        # Use the manually adjusted productivity rate from the slider
+        productivity_rate = job_inputs["productivity_rate"]
+    else:
+        # Calculate based on default settings
+        productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
     
     # Stitching time (in minutes) - adjusted by productivity rate
     # Lower productivity rate means slower stitching (more time)
@@ -648,16 +653,136 @@ def get_productivity_rate(complex_production, coloreel_enabled):
 
 # Main Application
 def main():
-    st.title("Embroidery Quoting Tool")
+    # Add custom CSS for modern UI
+    st.markdown("""
+    <style>
+    /* Card styling */
+    .stCardContainer {
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    /* Heading styling */
+    h1 {
+        color: #3366cc;
+        font-weight: 700;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #f0f0f0;
+        margin-bottom: 20px;
+    }
+    
+    h2 {
+        color: #2c5282;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 10px;
+    }
+    
+    h3 {
+        color: #4a5568;
+        font-weight: 500;
+        margin-top: 15px;
+        margin-bottom: 10px;
+    }
+    
+    /* Button styling */
+    .stButton>button {
+        border-radius: 6px;
+        font-weight: 500;
+    }
+    
+    /* Input field styling */
+    .stTextInput>div>div>input, .stNumberInput>div>div>input {
+        border-radius: 5px;
+    }
+    
+    /* Select box styling */
+    .stSelectbox>div>div {
+        border-radius: 5px;
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        border-radius: 5px 5px 0 0;
+        padding: 0 20px;
+        font-weight: 500;
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        font-weight: 500;
+        color: #3366cc;
+        border-radius: 5px;
+    }
+    
+    /* Metric styling */
+    [data-testid="stMetricValue"] {
+        font-weight: 600;
+        color: #3366cc;
+    }
+    
+    /* Dark blue accent */
+    .accent-blue {
+        color: #3366cc;
+        font-weight: 600;
+    }
+    
+    /* Card container */
+    .card {
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # App header with logo and title
+    col1, col2 = st.columns([1, 5])
+    
+    # Use a placeholder logo image 
+    # col1.image("logo.png", width=80)  # Uncomment and add a logo if available
+    
+    col2.title("Embroidery Quoting Tool")
     
     # Tabs for New Quote and History
     tab1, tab2, tab3 = st.tabs(["Create Quote", "Quote History", "Admin Settings"])
     
     with tab1:
-        # Step 1: File Upload Section
+        # Step 1: File Upload Section with card style
         st.header("Step 1: Upload Design File")
-        uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
-                                      help="Upload your embroidery design file in DST or U01 format")
+        
+        # File upload card
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
+        # Create columns for upload instructions and button
+        upload_col1, upload_col2 = st.columns([3, 2])
+        
+        with upload_col1:
+            st.markdown("""
+            ### Upload Design File
+            Upload your embroidery design file (.dst or .u01) to analyze stitch count, 
+            dimension, colors, and complexity.
+            
+            Supported formats:
+            - **DST** (Tajima)
+            - **U01** (Barudan)
+            """)
+        
+        with upload_col2:
+            uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
+                                          help="Upload your embroidery design file in DST or U01 format")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
         
         if uploaded_file:
             # Parse the file and save in session state
@@ -665,49 +790,96 @@ def main():
                 st.session_state.design_info = parse_embroidery_file(uploaded_file)
             
             if st.session_state.design_info:
-                # Display design information in an expandable section
-                with st.expander("Design Information", expanded=True):
-                    col1, col2 = st.columns([1, 1])
+                # Design Information Card
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                
+                # Header with file name
+                file_name = uploaded_file.name
+                st.markdown(f"""
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0; color: #3366cc;">Design Information</h3>
+                    <span style="background-color: #e6efff; padding: 5px 10px; border-radius: 4px; font-size: 0.9em;">
+                        <strong>File:</strong> {file_name}
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Design info columns
+                col1, col2 = st.columns([1, 1])
+                
+                # Basic design metrics
+                with col1:
+                    # Key metrics in a grid
+                    metric_col1, metric_col2 = st.columns(2)
                     
-                    # Basic design metrics
-                    with col1:
+                    with metric_col1:
                         st.metric("Stitch Count", f"{st.session_state.design_info['stitch_count']:,}")
                         st.metric("Colors", f"{st.session_state.design_info['color_changes']}")
-                        st.metric("Dimensions", 
-                                f"{st.session_state.design_info['width_inches']:.2f}\" × {st.session_state.design_info['height_inches']:.2f}\" " +
-                                f"({st.session_state.design_info['width_mm']:.1f}mm × {st.session_state.design_info['height_mm']:.1f}mm)")
-                        
-                        # Complexity score with visual indicator
-                        complexity = st.session_state.design_info['complexity_score']
-                        st.write("Design Complexity")
-                        st.progress(complexity/100)
-                        
-                        if complexity < 30:
-                            complexity_text = "Low complexity (quick, simple design)"
-                        elif complexity < 70:
-                            complexity_text = "Medium complexity"
-                        else:
-                            complexity_text = "High complexity (detailed, time-intensive)"
-                        st.caption(complexity_text)
                     
-                    # Design preview
-                    with col2:
-                        # Checkbox for foam preview
-                        preview_with_foam = st.checkbox("Preview with 3D foam margin", value=False)
-                        
-                        # Generate and display preview
-                        preview_img = render_design_preview(
-                            st.session_state.design_info["pattern"], 
-                            width=400, 
-                            height=400, 
-                            use_foam=preview_with_foam
-                        )
-                        st.image(preview_img, caption="Design Preview", use_container_width=True)
+                    with metric_col2:
+                        st.metric("Width", f"{st.session_state.design_info['width_inches']:.2f}\"")
+                        st.metric("Height", f"{st.session_state.design_info['height_inches']:.2f}\"")
+                    
+                    # Complexity score with visual indicator
+                    st.markdown("""
+                    <h4 style="margin-top: 20px; margin-bottom: 10px; color: #4a5568;">
+                        Design Complexity
+                    </h4>
+                    """, unsafe_allow_html=True)
+                    
+                    complexity = st.session_state.design_info['complexity_score']
+                    
+                    # Determine color based on complexity
+                    if complexity < 30:
+                        bar_color = "#4CAF50"  # Green for low complexity
+                        complexity_text = "Low complexity (quick, simple design)"
+                    elif complexity < 70:
+                        bar_color = "#FF9800"  # Orange for medium complexity
+                        complexity_text = "Medium complexity"
+                    else:
+                        bar_color = "#F44336"  # Red for high complexity
+                        complexity_text = "High complexity (detailed, time-intensive)"
+                    
+                    # Custom progress bar with better styling
+                    st.markdown(f"""
+                    <div style="background-color: #f0f0f0; border-radius: 10px; height: 15px; width: 100%; margin-bottom: 8px;">
+                        <div style="background-color: {bar_color}; width: {complexity}%; height: 100%; border-radius: 10px;"></div>
+                    </div>
+                    <p style="font-size: 0.9em; color: #718096; margin-top: 0;">{complexity_text}</p>
+                    """, unsafe_allow_html=True)
+                
+                # Design preview
+                with col2:
+                    # Preview container with border
+                    st.markdown("""
+                    <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 10px;">
+                    """, unsafe_allow_html=True)
+                    
+                    # Checkbox for foam preview
+                    preview_with_foam = st.checkbox("Preview with 3D foam margin", value=False)
+                    
+                    # Generate and display preview
+                    preview_img = render_design_preview(
+                        st.session_state.design_info["pattern"], 
+                        width=400, 
+                        height=400, 
+                        use_foam=preview_with_foam
+                    )
+                    st.image(preview_img, caption="Design Preview", use_container_width=True)
+                    
+                    st.markdown("""</div>""", unsafe_allow_html=True)
+                
+                # Thread length information
+                thread_length = st.session_state.design_info['thread_length_yards']
+                st.info(f"This design uses approximately {thread_length:.1f} yards of thread per piece")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
         
         # Step 2: Job Information & Materials
         st.header("Step 2: Job Information & Materials")
         
-        # Job Info Card
+        # Job Info Card with custom styling
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Job Information")
         col1, col2 = st.columns(2)
         
@@ -732,6 +904,7 @@ def main():
                                help="Where the design will be placed on the garment")
         
         # Technical Settings Card
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Machine & Technical Settings")
         
         col1, col2, col3 = st.columns(3)
@@ -767,10 +940,38 @@ def main():
             if coloreel_enabled and active_heads > coloreel_max_heads:
                 active_heads = coloreel_max_heads
                 st.warning(f"Max heads limited to {coloreel_max_heads} with Coloreel enabled")
+            
+            # Determine initial productivity rate and slider parameters
+            min_rate = 0.5  # Default minimum rate
+            max_rate = 1.0  # Default maximum rate
+            step = 0.05     # Default step value
+            
+            if coloreel_enabled:
+                initial_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+                min_rate = 0.5
+                max_rate = 0.9
+            elif complex_production:
+                initial_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+                min_rate = 0.6
+                max_rate = 0.95
+            else:
+                initial_rate = float(DEFAULT_PRODUCTIVITY_RATE)
                 
-            # Display productivity rate based on selected options
-            productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
-            st.caption(f"Productivity Rate: {productivity_rate:.2f} ({int(productivity_rate * 100)}% efficiency)")
+            # Allow adjustment of productivity rate if complex production is enabled
+            if complex_production or coloreel_enabled:
+                productivity_rate = st.slider(
+                    "Productivity Rate", 
+                    min_value=min_rate, 
+                    max_value=max_rate, 
+                    value=initial_rate,
+                    step=step,
+                    format="%.2f",
+                    help="Lower values mean slower stitching speed (more time) for complex designs"
+                )
+                st.caption(f"Productivity: {int(productivity_rate * 100)}% efficiency")
+            else:
+                productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
+                st.caption(f"Productivity Rate: {productivity_rate:.2f} ({int(productivity_rate * 100)}% efficiency)")
         
         with col2:
             thread_weight = st.selectbox("Thread Weight", 
@@ -832,7 +1033,10 @@ def main():
         use_foam = st.checkbox("Use 3D Foam", value=False,
                              help="Check if using 3D foam for raised embroidery effect")
         
-        # Pricing Information Card
+        st.markdown('</div>', unsafe_allow_html=True)  # Close job info card
+        
+        # Technical Settings Card
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Pricing Information")
         
         col1, col2 = st.columns(2)
@@ -856,6 +1060,8 @@ def main():
                                      value=0.0, 
                                      step=5.0,
                                      help="One-time fee for setup, etc.")
+            
+        st.markdown('</div>', unsafe_allow_html=True)  # Close pricing card
         
         # Calculate Button
         calculate_pressed = st.button("Calculate Quote", type="primary")
@@ -881,6 +1087,10 @@ def main():
                 "setup_fee": setup_fee,
                 "digitizing_fee": digitizing_fee if 'digitizing_fee' in locals() else 0.0
             }
+            
+            # Add productivity rate if it was set manually
+            if 'productivity_rate' in locals():
+                job_inputs["productivity_rate"] = productivity_rate
             
             # Calculate all costs
             with st.spinner("Calculating costs..."):
@@ -913,67 +1123,129 @@ def main():
             # Display Results
             st.header("Quote Results")
             
-            # Summary card
-            col1, col2 = st.columns(2)
+            # Summary card with custom styling
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Quote Summary")
+            
+            # Main metrics in a prominent section
+            st.markdown(f"""
+            <div style="text-align:center; padding:15px; margin-bottom:20px; 
+                        background-color:#f8f9fa; border-radius:8px;">
+                <h2 style="color:#3366cc; margin:0; font-size:28px;">
+                    ${cost_results['total_job_cost']:.2f}
+                </h2>
+                <p style="color:#4a5568; margin:5px 0 0 0; font-size:14px;">
+                    Total Job Cost
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Summary metrics in a grid
+            col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Job Cost", f"${cost_results['total_job_cost']:.2f}")
                 st.metric("Price Per Piece", f"${cost_results['price_per_piece']:.2f}")
-                st.metric("Production Time", f"{cost_results['production_time_hours']:.2f} hours")
             
             with col2:
-                st.metric("Material Cost", f"${cost_results['material_cost']:.2f}")
-                st.metric("Labor Cost", f"${cost_results['labor_cost']:.2f}")
+                st.metric("Production Time", f"{cost_results['production_time_hours']:.2f} hours")
+                
+            with col3:
                 st.metric("Profit Margin", f"${cost_results['profit_margin']:.2f} ({markup_percentage}%)")
+                
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            # Detailed breakdown in expander
-            with st.expander("Detailed Cost Breakdown"):
-                st.subheader("Materials")
-                materials_col1, materials_col2 = st.columns(2)
-                
-                with materials_col1:
-                    st.metric("Thread Cost", f"${cost_results['thread_cost']:.2f}")
-                    st.metric("Bobbin Cost", f"${cost_results['bobbin_cost']:.2f}")
-                
-                with materials_col2:
-                    st.metric("Stabilizer Cost", f"${cost_results['stabilizer_cost']:.2f}")
-                    if use_foam:
-                        st.metric("Foam Cost", f"${cost_results['foam_cost']:.2f}")
-                
-                st.subheader("Production Details")
-                production_col1, production_col2 = st.columns(2)
-                
-                with production_col1:
-                    st.metric("Runs Needed", str(cost_results['runs_needed']))
-                    st.metric("Spools Required", str(cost_results['spools_required']))
-                
-                with production_col2:
-                    st.metric("Bobbins Required", f"{cost_results['bobbins_required']:.1f}")
-                    st.metric("Setup Fee", f"${cost_results['setup_fee']:.2f}")
+            # Cost breakdown in a card
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Cost Breakdown")
+            
+            # Materials section
+            st.markdown("""
+            <h4 style="color:#4a5568; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+                <i class="fas fa-cube"></i> Materials
+            </h4>
+            """, unsafe_allow_html=True)
+            
+            # Materials grid
+            materials_col1, materials_col2 = st.columns(2)
+            
+            with materials_col1:
+                st.metric("Thread Cost", f"${cost_results['thread_cost']:.2f}")
+                st.metric("Bobbin Cost", f"${cost_results['bobbin_cost']:.2f}")
+            
+            with materials_col2:
+                st.metric("Stabilizer Cost", f"${cost_results['stabilizer_cost']:.2f}")
+                if use_foam:
+                    st.metric("Foam Cost", f"${cost_results['foam_cost']:.2f}")
                     
-                    # Show digitizing fee if applicable
-                    if job_inputs.get("complex_production", False) and cost_results.get("digitizing_fee", 0) > 0:
-                        st.metric("Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}")
+            st.metric("Total Material Cost", f"${cost_results['material_cost']:.2f}")
+            
+            # Production details section
+            st.markdown("""
+            <h4 style="color:#4a5568; border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:20px;">
+                <i class="fas fa-cogs"></i> Production Details
+            </h4>
+            """, unsafe_allow_html=True)
+            
+            # Production grid
+            production_col1, production_col2 = st.columns(2)
+            
+            with production_col1:
+                st.metric("Labor Cost", f"${cost_results['labor_cost']:.2f}")
+                st.metric("Runs Needed", str(cost_results['runs_needed']))
+            
+            with production_col2:
+                st.metric("Spools Required", str(cost_results['spools_required']))
+                st.metric("Bobbins Required", f"{cost_results['bobbins_required']:.1f}")
+            
+            # Fees section
+            st.markdown("""
+            <h4 style="color:#4a5568; border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:20px;">
+                <i class="fas fa-dollar-sign"></i> Additional Fees
+            </h4>
+            """, unsafe_allow_html=True)
+            
+            # Fees grid
+            fees_col1, fees_col2 = st.columns(2)
+            
+            with fees_col1:
+                st.metric("Setup Fee", f"${cost_results['setup_fee']:.2f}")
+            
+            with fees_col2:
+                # Show digitizing fee if applicable
+                if job_inputs.get("complex_production", False) and cost_results.get("digitizing_fee", 0) > 0:
+                    st.metric("Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
             
             # Generate PDFs
             detailed_pdf = generate_detailed_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
             customer_pdf = generate_customer_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
             
-            # Download buttons
+            # Download buttons in a card
+            st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Download Quotes")
+            
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown(
-                    get_download_link(detailed_pdf, f"internal_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", "Download Internal Quote PDF"),
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"""
+                <div style="text-align:center; padding:15px; margin:10px; 
+                            background-color:#f8f9fa; border-radius:8px; border:1px solid #e2e8f0;">
+                    {get_download_link(detailed_pdf, f"internal_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", 
+                    '<i class="fas fa-file-pdf"></i> Download Internal Quote PDF')}
+                </div>
+                """, unsafe_allow_html=True)
             
             with col2:
-                st.markdown(
-                    get_download_link(customer_pdf, f"customer_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", "Download Customer Quote PDF"),
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"""
+                <div style="text-align:center; padding:15px; margin:10px; 
+                            background-color:#f8f9fa; border-radius:8px; border:1px solid #e2e8f0;">
+                    {get_download_link(customer_pdf, f"customer_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", 
+                    '<i class="fas fa-file-pdf"></i> Download Customer Quote PDF')}
+                </div>
+                """, unsafe_allow_html=True)
+                
+            st.markdown('</div>', unsafe_allow_html=True)
         
         elif calculate_pressed and not st.session_state.design_info:
             st.error("Please upload a DST file first to generate a quote.")
@@ -983,47 +1255,102 @@ def main():
         st.header("Quote History")
         
         if not st.session_state.history:
-            st.info("No quote history yet. Create quotes in the 'Create Quote' tab to see them here.")
+            st.markdown('''
+            <div class="card" style="text-align: center; padding: 30px;">
+                <i class="fas fa-history" style="font-size: 48px; color: #e2e8f0; margin-bottom: 20px;"></i>
+                <h3>No Quote History Yet</h3>
+                <p>Create quotes in the 'Create Quote' tab to see them here.</p>
+            </div>
+            ''', unsafe_allow_html=True)
         else:
+            # Search box for history (optional)
+            search_query = st.text_input("🔍 Search by job name or customer", "")
+            
             for i, entry in enumerate(reversed(st.session_state.history)):
-                with st.expander(f"{entry['job_name']} - {entry['timestamp'].strftime('%Y-%m-%d %H:%M')}"):
-                    col1, col2 = st.columns(2)
+                # Skip entries that don't match the search query if one is provided
+                if search_query and not (
+                    search_query.lower() in entry['job_name'].lower() or 
+                    search_query.lower() in entry['job_inputs'].get('customer_name', '').lower()
+                ):
+                    continue
+                
+                # Quote history card
+                st.markdown(f'''
+                <div class="card" style="margin-bottom: 15px; border-left: 4px solid #3366cc;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="margin: 0;">{entry['job_name']}</h3>
+                        <span style="color: #718096; font-size: 14px;">{entry['timestamp'].strftime('%Y-%m-%d %H:%M')}</span>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                with st.expander("View Details"):
+                    # Main summary with larger total cost
+                    st.markdown(f'''
+                    <div style="text-align:center; padding:15px; margin-bottom:20px; 
+                                background-color:#f8f9fa; border-radius:8px;">
+                        <h2 style="color:#3366cc; margin:0; font-size:24px;">
+                            ${entry['cost_results']['total_job_cost']:.2f}
+                        </h2>
+                        <p style="color:#4a5568; margin:5px 0 0 0; font-size:14px;">
+                            Total Job Cost
+                        </p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    col1, col2, col3 = st.columns(3)
                     
                     with col1:
-                        st.write("**Job Details**")
-                        st.write(f"Customer: {entry['job_inputs'].get('customer_name', '')}")
-                        st.write(f"Quantity: {entry['job_inputs']['quantity']}")
-                        st.write(f"Garment: {entry['job_inputs']['garment_type']}")
-                        st.write(f"Stitch Count: {entry['design_info']['stitch_count']:,}")
+                        st.metric("Customer", entry['job_inputs'].get('customer_name', 'N/A'))
+                        st.metric("Quantity", str(entry['job_inputs']['quantity']))
                     
                     with col2:
-                        st.write("**Quote Summary**")
-                        st.write(f"Total Cost: ${entry['cost_results']['total_job_cost']:.2f}")
-                        st.write(f"Price Per Piece: ${entry['cost_results']['price_per_piece']:.2f}")
-                        st.write(f"Production Time: {entry['cost_results']['production_time_hours']:.2f} hours")
+                        st.metric("Price Per Piece", f"${entry['cost_results']['price_per_piece']:.2f}")
+                        st.metric("Production Time", f"{entry['cost_results']['production_time_hours']:.2f} hours")
+                    
+                    with col3:
+                        st.metric("Stitch Count", f"{entry['design_info']['stitch_count']:,}")
+                        st.metric("Garment", entry['job_inputs']['garment_type'])
                     
                     # Regenerate PDFs for history items
                     detailed_pdf = generate_detailed_quote_pdf(entry['design_info'], entry['job_inputs'], entry['cost_results'])
                     customer_pdf = generate_customer_quote_pdf(entry['design_info'], entry['job_inputs'], entry['cost_results'])
                     
+                    # Download buttons
+                    st.markdown("<hr style='margin: 20px 0;'>", unsafe_allow_html=True)
+                    st.markdown("<h4>Download Quote PDFs</h4>", unsafe_allow_html=True)
+                    
                     pdf_col1, pdf_col2 = st.columns(2)
                     
                     with pdf_col1:
-                        st.markdown(
-                            get_download_link(detailed_pdf, f"internal_quote_{entry['job_name']}_{entry['timestamp'].strftime('%Y%m%d')}.pdf", "Download Internal Quote PDF"),
-                            unsafe_allow_html=True
-                        )
+                        st.markdown(f'''
+                        <div style="text-align:center; padding:10px; margin:5px; 
+                                    background-color:#f8f9fa; border-radius:8px; border:1px solid #e2e8f0;">
+                            {get_download_link(detailed_pdf, f"internal_quote_{entry['job_name']}_{entry['timestamp'].strftime('%Y%m%d')}.pdf", 
+                            '<i class="fas fa-file-pdf"></i> Download Internal Quote PDF')}
+                        </div>
+                        ''', unsafe_allow_html=True)
                     
                     with pdf_col2:
-                        st.markdown(
-                            get_download_link(customer_pdf, f"customer_quote_{entry['job_name']}_{entry['timestamp'].strftime('%Y%m%d')}.pdf", "Download Customer Quote PDF"),
-                            unsafe_allow_html=True
-                        )
+                        st.markdown(f'''
+                        <div style="text-align:center; padding:10px; margin:5px; 
+                                    background-color:#f8f9fa; border-radius:8px; border:1px solid #e2e8f0;">
+                            {get_download_link(customer_pdf, f"customer_quote_{entry['job_name']}_{entry['timestamp'].strftime('%Y%m%d')}.pdf", 
+                            '<i class="fas fa-file-pdf"></i> Download Customer Quote PDF')}
+                        </div>
+                        ''', unsafe_allow_html=True)
     
     # Admin Settings Tab
     with tab3:
         st.header("Admin Settings")
-        st.warning("Changes to these settings will affect all future quotes. Use with caution.")
+        
+        # Admin header with warning
+        st.markdown('''
+        <div class="card" style="background-color: #fff8f0; border-left: 4px solid #f0ad4e;">
+            <h3 style="color: #f0ad4e; margin-top: 0;">⚙️ Settings Configuration</h3>
+            <p>Changes to these settings will affect all future quotes. Use with caution.</p>
+        </div>
+        ''', unsafe_allow_html=True)
         
         # Admin settings (no password protection as requested)
         material_settings_updated = False
