@@ -46,6 +46,10 @@ DEFAULT_STITCH_SPEED_60WT = machine_settings.get("DEFAULT_STITCH_SPEED_60WT", {}
 DEFAULT_MAX_HEADS = machine_settings.get("DEFAULT_MAX_HEADS", {}).get("value", 15)
 DEFAULT_COLOREEL_MAX_HEADS = machine_settings.get("DEFAULT_COLOREEL_MAX_HEADS", {}).get("value", 2)
 HOOPING_TIME_DEFAULT = machine_settings.get("HOOPING_TIME_DEFAULT", {}).get("value", 50)  # seconds
+DEFAULT_PRODUCTIVITY_RATE = machine_settings.get("DEFAULT_PRODUCTIVITY_RATE", {}).get("value", 1.0)
+DEFAULT_COMPLEX_PRODUCTIVITY_RATE = machine_settings.get("DEFAULT_COMPLEX_PRODUCTIVITY_RATE", {}).get("value", 0.8)
+DEFAULT_COLOREEL_PRODUCTIVITY_RATE = machine_settings.get("DEFAULT_COLOREEL_PRODUCTIVITY_RATE", {}).get("value", 0.75)
+DEFAULT_DIGITIZING_FEE = machine_settings.get("DEFAULT_DIGITIZING_FEE", {}).get("value", 25.0)
 
 HOURLY_LABOR_RATE = labor_settings.get("HOURLY_LABOR_RATE", {}).get("value", 25)
 
@@ -293,8 +297,13 @@ def calculate_costs(design_info, job_inputs):
         foam_cost = sheets_needed * FOAM_SHEET_PRICE
     
     # 5. Production time calculation
-    # Stitching time (in minutes)
-    stitching_time_minutes = stitch_count / stitch_speed
+    # Get productivity rate based on the selected options
+    complex_production = job_inputs.get("complex_production", False)
+    productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
+    
+    # Stitching time (in minutes) - adjusted by productivity rate
+    # Lower productivity rate means slower stitching (more time)
+    stitching_time_minutes = (stitch_count / stitch_speed) / productivity_rate
     
     # Hooping time (in minutes)
     hooping_time_minutes = HOOPING_TIME_DEFAULT / 60  # Convert seconds to minutes
@@ -316,9 +325,12 @@ def calculate_costs(design_info, job_inputs):
     material_cost = thread_cost + bobbin_cost + stabilizer_cost + foam_cost
     direct_cost = material_cost + labor_cost
     
-    # 8. Markup and final price
+    # 8. Digitizing fee (if complex production is enabled)
+    digitizing_fee = job_inputs.get("digitizing_fee", 0.0)
+    
+    # 9. Markup and final price
     profit_margin = direct_cost * (markup_percentage / 100)
-    total_job_cost = direct_cost + profit_margin + setup_fee
+    total_job_cost = direct_cost + profit_margin + setup_fee + digitizing_fee
     price_per_piece = total_job_cost / quantity if quantity > 0 else 0
     
     # Return all calculations
@@ -334,11 +346,13 @@ def calculate_costs(design_info, job_inputs):
         "direct_cost": direct_cost,
         "profit_margin": profit_margin,
         "setup_fee": setup_fee,
+        "digitizing_fee": digitizing_fee,
         "total_job_cost": total_job_cost,
         "price_per_piece": price_per_piece,
         "runs_needed": runs_needed,
         "spools_required": spools_required,
-        "bobbins_required": bobbins_required
+        "bobbins_required": bobbins_required,
+        "productivity_rate": productivity_rate
     }
 
 def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
@@ -434,6 +448,7 @@ def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
     # Cost Breakdown
     elements.append(Paragraph("Cost Breakdown", section_style))
     
+    # Prepare cost data for the table
     cost_data = [
         ["Thread Cost", f"${cost_results['thread_cost']:.2f}"],
         ["Bobbin Cost", f"${cost_results['bobbin_cost']:.2f}"],
@@ -444,9 +459,17 @@ def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
         ["Direct Cost", f"${cost_results['direct_cost']:.2f}"],
         ["Profit Margin", f"${cost_results['profit_margin']:.2f} ({job_inputs['markup_percentage']}%)"],
         ["Setup Fee", f"${cost_results['setup_fee']:.2f}"],
+    ]
+    
+    # Add digitizing fee if applicable
+    if job_inputs.get("complex_production", False) and cost_results.get("digitizing_fee", 0) > 0:
+        cost_data.append(["Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}"])
+    
+    # Add total cost rows
+    cost_data.extend([
         ["TOTAL JOB COST", f"${cost_results['total_job_cost']:.2f}"],
         ["Price Per Piece", f"${cost_results['price_per_piece']:.2f}"],
-    ]
+    ])
     
     cost_table = Table(cost_data, colWidths=[2 * inch, 4 * inch])
     cost_table.setStyle(TableStyle([
@@ -544,13 +567,31 @@ def generate_customer_quote_pdf(design_info, job_inputs, cost_results):
     # Pricing (simplified)
     elements.append(Paragraph("Quote Summary", section_style))
     
-    if cost_results['setup_fee'] > 0:
-        pricing_data = [
-            ["Setup Fee", f"${cost_results['setup_fee']:.2f}"],
-            ["Embroidery Cost", f"${(cost_results['total_job_cost'] - cost_results['setup_fee']):.2f}"],
-            ["TOTAL", f"${cost_results['total_job_cost']:.2f}"],
-            ["Price Per Piece", f"${cost_results['price_per_piece']:.2f}"],
-        ]
+    # Determine if we have additional fees
+    has_setup_fee = cost_results['setup_fee'] > 0
+    has_digitizing_fee = cost_results.get('digitizing_fee', 0) > 0 and job_inputs.get('complex_production', False)
+    
+    if has_setup_fee or has_digitizing_fee:
+        pricing_data = []
+        
+        # Add setup fee if applicable
+        if has_setup_fee:
+            pricing_data.append(["Setup Fee", f"${cost_results['setup_fee']:.2f}"])
+            
+        # Add digitizing fee if applicable
+        if has_digitizing_fee:
+            pricing_data.append(["Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}"])
+            
+        # Calculate the remaining cost (excluding fees)
+        non_fee_costs = cost_results['total_job_cost']
+        if has_setup_fee:
+            non_fee_costs -= cost_results['setup_fee']
+        if has_digitizing_fee:
+            non_fee_costs -= cost_results['digitizing_fee']
+            
+        pricing_data.append(["Embroidery Cost", f"${non_fee_costs:.2f}"])
+        pricing_data.append(["TOTAL", f"${cost_results['total_job_cost']:.2f}"])
+        pricing_data.append(["Price Per Piece", f"${cost_results['price_per_piece']:.2f}"])
     else:
         pricing_data = [
             ["Total Cost", f"${cost_results['total_job_cost']:.2f}"],
@@ -592,6 +633,18 @@ def get_download_link(buffer, filename, text):
     b64 = base64.b64encode(buffer.read()).decode()
     href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">{text}</a>'
     return href
+
+def get_productivity_rate(complex_production, coloreel_enabled):
+    """Calculate productivity rate based on the selected options"""
+    # If Coloreel is enabled, use the Coloreel productivity rate
+    if coloreel_enabled:
+        return float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+    # If complex production is enabled, use the complex productivity rate
+    elif complex_production:
+        return float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+    # Otherwise, use the default productivity rate
+    else:
+        return float(DEFAULT_PRODUCTIVITY_RATE)
 
 # Main Application
 def main():
@@ -696,13 +749,28 @@ def main():
             active_heads = st.slider("Machine Heads", 1, max_heads, default_heads, 
                                   help="Number of embroidery heads that will run simultaneously")
             
-            coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
-                                        help="Enable if using Coloreel instant thread coloring technology")
+            # Complex production checkbox
+            complex_production = st.checkbox("Complex Production", value=False,
+                                         help="Enable for complex designs that require slower stitching and additional attention")
             
+            # Coloreel ITCU checkbox
+            coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
+                                       help="Enable if using Coloreel instant thread coloring technology")
+            
+            # If Coloreel is enabled, automatically enable complex production
+            if coloreel_enabled and not complex_production:
+                complex_production = True
+                st.info("Complex Production automatically enabled with Coloreel ITCU")
+            
+            # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
             if coloreel_enabled and active_heads > coloreel_max_heads:
                 active_heads = coloreel_max_heads
                 st.warning(f"Max heads limited to {coloreel_max_heads} with Coloreel enabled")
+                
+            # Display productivity rate based on selected options
+            productivity_rate = get_productivity_rate(complex_production, coloreel_enabled)
+            st.caption(f"Productivity Rate: {productivity_rate:.2f} ({int(productivity_rate * 100)}% efficiency)")
         
         with col2:
             thread_weight = st.selectbox("Thread Weight", 
@@ -772,10 +840,22 @@ def main():
         with col1:
             markup_percentage = st.slider("Markup Percentage", 0, 200, 40,
                                        help="Profit margin percentage to add to direct costs")
+            
+            # Show digitizing fee input if complex production is enabled
+            digitizing_fee = 0.0
+            if complex_production:
+                digitizing_fee = st.number_input("Digitizing Fee ($)", 
+                                              min_value=0.0, 
+                                              value=float(DEFAULT_DIGITIZING_FEE), 
+                                              step=5.0,
+                                              help="Fee for digitizing complex designs")
         
         with col2:
-            setup_fee = st.number_input("Setup Fee ($)", min_value=0.0, value=0.0, step=5.0,
-                                      help="One-time fee for setup, digitizing, etc.")
+            setup_fee = st.number_input("Setup Fee ($)", 
+                                     min_value=0.0, 
+                                     value=0.0, 
+                                     step=5.0,
+                                     help="One-time fee for setup, etc.")
         
         # Calculate Button
         calculate_pressed = st.button("Calculate Quote", type="primary")
@@ -791,13 +871,15 @@ def main():
                 "placement": placement,
                 "active_heads": active_heads,
                 "coloreel_enabled": coloreel_enabled,
+                "complex_production": complex_production,
                 "thread_weight": thread_weight,
                 "hoop_size": hoop_size,
                 "color_count": color_count,
                 "stabilizer_type": stabilizer_type,
                 "use_foam": use_foam,
                 "markup_percentage": markup_percentage,
-                "setup_fee": setup_fee
+                "setup_fee": setup_fee,
+                "digitizing_fee": digitizing_fee if 'digitizing_fee' in locals() else 0.0
             }
             
             # Calculate all costs
@@ -868,6 +950,10 @@ def main():
                 with production_col2:
                     st.metric("Bobbins Required", f"{cost_results['bobbins_required']:.1f}")
                     st.metric("Setup Fee", f"${cost_results['setup_fee']:.2f}")
+                    
+                    # Show digitizing fee if applicable
+                    if job_inputs.get("complex_production", False) and cost_results.get("digitizing_fee", 0) > 0:
+                        st.metric("Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}")
             
             # Generate PDFs
             detailed_pdf = generate_detailed_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
@@ -1065,6 +1151,52 @@ def main():
                     value=int(float(HOOPING_TIME_DEFAULT)),
                     help="Average time to hoop an item in seconds"
                 )
+                
+            # Productivity Settings
+            st.subheader("Productivity Settings")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_default_productivity = st.number_input(
+                    "Default Productivity Rate",
+                    min_value=0.1,
+                    max_value=1.0,
+                    value=float(DEFAULT_PRODUCTIVITY_RATE),
+                    format="%.2f",
+                    step=0.05,
+                    help="Default productivity rate (1.0 = 100% efficiency)"
+                )
+                
+                new_complex_productivity = st.number_input(
+                    "Complex Production Rate",
+                    min_value=0.1,
+                    max_value=1.0,
+                    value=float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE),
+                    format="%.2f",
+                    step=0.05,
+                    help="Productivity rate for complex designs (lower means slower production)"
+                )
+            
+            with col2:
+                new_coloreel_productivity = st.number_input(
+                    "Coloreel Productivity Rate",
+                    min_value=0.1,
+                    max_value=1.0,
+                    value=float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE),
+                    format="%.2f",
+                    step=0.05,
+                    help="Productivity rate for Coloreel ITCU (lower means slower production)"
+                )
+                
+                new_digitizing_fee = st.number_input(
+                    "Default Digitizing Fee ($)",
+                    min_value=0.0,
+                    max_value=500.0,
+                    value=float(DEFAULT_DIGITIZING_FEE),
+                    format="%.2f",
+                    step=5.0,
+                    help="Default fee for digitizing complex designs"
+                )
             
             if st.button("Update Machine Settings"):
                 # Update database
@@ -1073,6 +1205,10 @@ def main():
                 database.update_setting("machine_settings", "DEFAULT_MAX_HEADS", new_max_heads)
                 database.update_setting("machine_settings", "DEFAULT_COLOREEL_MAX_HEADS", new_coloreel_max_heads)
                 database.update_setting("machine_settings", "HOOPING_TIME_DEFAULT", new_hooping_time)
+                database.update_setting("machine_settings", "DEFAULT_PRODUCTIVITY_RATE", new_default_productivity)
+                database.update_setting("machine_settings", "DEFAULT_COMPLEX_PRODUCTIVITY_RATE", new_complex_productivity)
+                database.update_setting("machine_settings", "DEFAULT_COLOREEL_PRODUCTIVITY_RATE", new_coloreel_productivity)
+                database.update_setting("machine_settings", "DEFAULT_DIGITIZING_FEE", new_digitizing_fee)
                 st.success("Machine settings updated successfully!")
                 machine_settings_updated = True
         
