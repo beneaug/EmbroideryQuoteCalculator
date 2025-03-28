@@ -1,18 +1,46 @@
 import os
+import time
 import sqlalchemy as sa
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 import streamlit as st
 
 # Get database connection string from environment variables
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# Create database engine
-engine = create_engine(DATABASE_URL)
+# Create database engine with connection pooling and retry settings
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # Check if connection is alive
+    pool_recycle=3600,   # Recycle connections after 1 hour
+    connect_args={
+        'connect_timeout': 10,  # Connection timeout in seconds
+        'keepalives': 1,        # Enable keepalives
+        'keepalives_idle': 30,  # Keepalive idle time
+        'keepalives_interval': 10, # Keepalive interval
+        'keepalives_count': 5   # Keepalive count
+    }
+)
 
 def get_connection():
-    """Get a database connection"""
-    return engine.connect()
+    """Get a database connection with retry mechanism"""
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            return engine.connect()
+        except OperationalError as e:
+            if "SSL connection has been closed unexpectedly" in str(e) and attempt < max_retries - 1:
+                # Log the error and retry
+                st.warning(f"Database connection dropped. Retrying ({attempt + 1}/{max_retries})...")
+                time.sleep(retry_delay)
+                # Increase delay for next retry
+                retry_delay *= 2
+            else:
+                # Last attempt failed or different error, re-raise with a message
+                st.error(f"Failed to connect to database after {max_retries} attempts: {str(e)}")
+                raise
 
 def get_material_settings():
     """Get all material settings from the database"""
@@ -90,25 +118,40 @@ def update_setting(table, name, value):
         return False
 
 def save_quote(quote_data):
-    """Save a quote to the database"""
-    try:
-        with get_connection() as conn:
-            query = """
-            INSERT INTO quotes 
-            (job_name, customer_name, stitch_count, color_count, quantity, 
-             width_inches, height_inches, total_cost, price_per_piece)
-            VALUES 
-            (:job_name, :customer_name, :stitch_count, :color_count, :quantity,
-             :width_inches, :height_inches, :total_cost, :price_per_piece)
-            RETURNING id
-            """
-            result = conn.execute(text(query), quote_data)
-            quote_id = result.fetchone()[0]
-            conn.commit()
-            return quote_id
-    except SQLAlchemyError as e:
-        st.error(f"Database error: {str(e)}")
-        return None
+    """Save a quote to the database with retry mechanism"""
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            with get_connection() as conn:
+                query = """
+                INSERT INTO quotes 
+                (job_name, customer_name, stitch_count, color_count, quantity, 
+                 width_inches, height_inches, total_cost, price_per_piece)
+                VALUES 
+                (:job_name, :customer_name, :stitch_count, :color_count, :quantity,
+                 :width_inches, :height_inches, :total_cost, :price_per_piece)
+                RETURNING id
+                """
+                result = conn.execute(text(query), quote_data)
+                quote_id = result.fetchone()[0]
+                conn.commit()
+                return quote_id
+        except OperationalError as e:
+            if "SSL connection has been closed unexpectedly" in str(e) and attempt < max_retries - 1:
+                # Log the error and retry
+                st.warning(f"Database connection dropped while saving quote. Retrying ({attempt + 1}/{max_retries})...")
+                time.sleep(retry_delay)
+                # Increase delay for next retry
+                retry_delay *= 2
+            else:
+                # Last attempt failed or different error
+                st.error(f"Database error: {str(e)}")
+                return None
+        except SQLAlchemyError as e:
+            st.error(f"Database error: {str(e)}")
+            return None
 
 def get_recent_quotes(limit=10):
     """Get recent quotes from the database"""
