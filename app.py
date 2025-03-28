@@ -17,6 +17,7 @@ import os
 import math
 import time
 import datetime
+import database
 
 # Set page config
 st.set_page_config(
@@ -26,19 +27,27 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Constants
-POLYNEON_5500YD_PRICE = 9.69
-POLYNEON_1100YD_PRICE = 3.19
-BOBBIN_144_PRICE = 35.85
-BOBBIN_YARDS = 124
-FOAM_SHEET_PRICE = 2.45
+# Load settings from database
+material_settings = database.get_material_settings()
+machine_settings = database.get_machine_settings()
+labor_settings = database.get_labor_settings()
+
+# Set constants from database with fallback defaults
+POLYNEON_5500YD_PRICE = material_settings.get("POLYNEON_5500YD_PRICE", {}).get("value", 9.69)
+POLYNEON_1100YD_PRICE = material_settings.get("POLYNEON_1100YD_PRICE", {}).get("value", 3.19)
+BOBBIN_144_PRICE = material_settings.get("BOBBIN_144_PRICE", {}).get("value", 35.85)
+BOBBIN_YARDS = material_settings.get("BOBBIN_YARDS", {}).get("value", 124)
+FOAM_SHEET_PRICE = material_settings.get("FOAM_SHEET_PRICE", {}).get("value", 2.45)
 FOAM_SHEET_SIZE = (18, 12)  # inches
-DEFAULT_STITCH_SPEED_40WT = 750  # rpm
-DEFAULT_STITCH_SPEED_60WT = 400  # rpm
-DEFAULT_MAX_HEADS = 15
-DEFAULT_COLOREEL_MAX_HEADS = 2
-HOOPING_TIME_DEFAULT = 50  # seconds
-STABILIZER_PRICE_PER_PIECE = 0.18  # $0.18 per piece
+STABILIZER_PRICE_PER_PIECE = material_settings.get("STABILIZER_PRICE_PER_PIECE", {}).get("value", 0.18)
+
+DEFAULT_STITCH_SPEED_40WT = machine_settings.get("DEFAULT_STITCH_SPEED_40WT", {}).get("value", 750)  # rpm
+DEFAULT_STITCH_SPEED_60WT = machine_settings.get("DEFAULT_STITCH_SPEED_60WT", {}).get("value", 400)  # rpm
+DEFAULT_MAX_HEADS = machine_settings.get("DEFAULT_MAX_HEADS", {}).get("value", 15)
+DEFAULT_COLOREEL_MAX_HEADS = machine_settings.get("DEFAULT_COLOREEL_MAX_HEADS", {}).get("value", 2)
+HOOPING_TIME_DEFAULT = machine_settings.get("HOOPING_TIME_DEFAULT", {}).get("value", 50)  # seconds
+
+HOURLY_LABOR_RATE = labor_settings.get("HOURLY_LABOR_RATE", {}).get("value", 25)
 
 # Initialize session state variables
 if 'history' not in st.session_state:
@@ -272,9 +281,8 @@ def calculate_costs(design_info, job_inputs):
     total_production_time_minutes = runs_needed * production_time_per_piece
     total_production_time_hours = total_production_time_minutes / 60
     
-    # 6. Labor cost (Assuming $25/hour)
-    hourly_labor_rate = 25
-    labor_cost = total_production_time_hours * hourly_labor_rate
+    # 6. Labor cost
+    labor_cost = total_production_time_hours * HOURLY_LABOR_RATE
     
     # 7. Total costs
     material_cost = thread_cost + bobbin_cost + stabilizer_cost + foam_cost
@@ -335,6 +343,7 @@ def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
     
     job_info_data = [
         ["Job Name", job_inputs.get("job_name", "")],
+        ["Customer", job_inputs.get("customer_name", "")],
         ["Date", datetime.datetime.now().strftime("%Y-%m-%d")],
         ["Quantity", str(job_inputs["quantity"])],
         ["Garment Type", job_inputs["garment_type"]],
@@ -471,6 +480,7 @@ def generate_customer_quote_pdf(design_info, job_inputs, cost_results):
     job_info_data = [
         ["Quote Date", datetime.datetime.now().strftime("%Y-%m-%d")],
         ["Job Name", job_inputs.get("job_name", "")],
+        ["Customer", job_inputs.get("customer_name", "")],
         ["Quantity", str(job_inputs["quantity"])],
         ["Garment Type", job_inputs["garment_type"]],
         ["Placement", job_inputs.get("placement", "")],
@@ -560,7 +570,7 @@ def main():
     st.title("Embroidery Quoting Tool")
     
     # Tabs for New Quote and History
-    tab1, tab2 = st.tabs(["Create Quote", "Quote History"])
+    tab1, tab2, tab3 = st.tabs(["Create Quote", "Quote History", "Admin Settings"])
     
     with tab1:
         # Step 1: File Upload Section
@@ -611,7 +621,7 @@ def main():
                             height=400, 
                             use_foam=preview_with_foam
                         )
-                        st.image(preview_img, caption="Design Preview", use_column_width=True)
+                        st.image(preview_img, caption="Design Preview", use_container_width=True)
         
         # Step 2: Job Information & Materials
         st.header("Step 2: Job Information & Materials")
@@ -622,7 +632,9 @@ def main():
         
         with col1:
             job_name = st.text_input("Job Name/Reference (Optional)", 
-                                   help="A name to identify this quote (customer name, project name, etc.)")
+                                   help="A name to identify this quote (project name, etc.)")
+            customer_name = st.text_input("Customer Name (Optional)",
+                                      help="Name of the customer for this order")
             quantity = st.number_input("Quantity", min_value=1, value=50, 
                                     help="Number of pieces to be embroidered")
         
@@ -734,6 +746,7 @@ def main():
             # Gather all inputs
             job_inputs = {
                 "job_name": job_name,
+                "customer_name": customer_name,
                 "quantity": quantity,
                 "garment_type": garment_type,
                 "fabric_type": fabric_type,
@@ -762,6 +775,20 @@ def main():
                 "cost_results": cost_results.copy()
             }
             st.session_state.history.append(history_entry)
+            
+            # Save to database
+            quote_data = {
+                "job_name": job_name if job_name else f"Quote {len(st.session_state.history)}",
+                "customer_name": job_inputs.get("customer_name", ""),
+                "stitch_count": st.session_state.design_info["stitch_count"],
+                "color_count": job_inputs["color_count"],
+                "quantity": job_inputs["quantity"],
+                "width_inches": st.session_state.design_info["width_inches"],
+                "height_inches": st.session_state.design_info["height_inches"],
+                "total_cost": cost_results["total_job_cost"],
+                "price_per_piece": cost_results["price_per_piece"]
+            }
+            database.save_quote(quote_data)
             
             # Display Results
             st.header("Quote Results")
@@ -840,6 +867,7 @@ def main():
                     
                     with col1:
                         st.write("**Job Details**")
+                        st.write(f"Customer: {entry['job_inputs'].get('customer_name', '')}")
                         st.write(f"Quantity: {entry['job_inputs']['quantity']}")
                         st.write(f"Garment: {entry['job_inputs']['garment_type']}")
                         st.write(f"Stitch Count: {entry['design_info']['stitch_count']:,}")
@@ -867,6 +895,210 @@ def main():
                             get_download_link(customer_pdf, f"customer_quote_{entry['job_name']}_{entry['timestamp'].strftime('%Y%m%d')}.pdf", "Download Customer Quote PDF"),
                             unsafe_allow_html=True
                         )
+    
+    # Admin Settings Tab
+    with tab3:
+        st.header("Admin Settings")
+        st.warning("Changes to these settings will affect all future quotes. Use with caution.")
+        
+        # Password protection for admin settings
+        if 'admin_authenticated' not in st.session_state:
+            st.session_state.admin_authenticated = False
+            
+        if not st.session_state.admin_authenticated:
+            admin_password = st.text_input("Admin Password", type="password")
+            if st.button("Login"):
+                # Simple password protection - in a real app, use a more secure method
+                if admin_password == "admin123":  # This is just a placeholder - use proper auth in production
+                    st.session_state.admin_authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password")
+        else:
+            # Material Settings
+            with st.expander("Material Settings", expanded=True):
+                material_settings_updated = False
+                
+                st.subheader("Thread Settings")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    new_polyneon_5500yd_price = st.number_input(
+                        "Polyneon 5500yd Spool Price ($)",
+                        min_value=0.01,
+                        value=float(POLYNEON_5500YD_PRICE),
+                        format="%.2f",
+                        help="Cost of a 5500 yard spool of Polyneon thread"
+                    )
+                    
+                    new_polyneon_1100yd_price = st.number_input(
+                        "Polyneon 1100yd Spool Price ($)",
+                        min_value=0.01,
+                        value=float(POLYNEON_1100YD_PRICE),
+                        format="%.2f",
+                        help="Cost of a 1100 yard spool of Polyneon thread"
+                    )
+                
+                with col2:
+                    new_bobbin_144_price = st.number_input(
+                        "Bobbin 144-Pack Price ($)",
+                        min_value=0.01,
+                        value=float(BOBBIN_144_PRICE),
+                        format="%.2f",
+                        help="Cost of a pack of 144 bobbins"
+                    )
+                    
+                    new_bobbin_yards = st.number_input(
+                        "Yards Per Bobbin",
+                        min_value=1,
+                        value=int(BOBBIN_YARDS),
+                        help="Number of yards of thread per bobbin"
+                    )
+                
+                st.subheader("Other Materials")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    new_foam_sheet_price = st.number_input(
+                        "3D Foam Sheet Price ($)",
+                        min_value=0.01,
+                        value=float(FOAM_SHEET_PRICE),
+                        format="%.2f",
+                        help="Cost per sheet of 3D foam"
+                    )
+                
+                with col2:
+                    new_stabilizer_price = st.number_input(
+                        "Stabilizer Price Per Piece ($)",
+                        min_value=0.01,
+                        value=float(STABILIZER_PRICE_PER_PIECE),
+                        format="%.2f",
+                        help="Cost per piece of stabilizer backing"
+                    )
+                
+                if st.button("Update Material Settings"):
+                    # Update database
+                    database.update_setting("material_settings", "POLYNEON_5500YD_PRICE", new_polyneon_5500yd_price)
+                    database.update_setting("material_settings", "POLYNEON_1100YD_PRICE", new_polyneon_1100yd_price)
+                    database.update_setting("material_settings", "BOBBIN_144_PRICE", new_bobbin_144_price)
+                    database.update_setting("material_settings", "BOBBIN_YARDS", new_bobbin_yards)
+                    database.update_setting("material_settings", "FOAM_SHEET_PRICE", new_foam_sheet_price)
+                    database.update_setting("material_settings", "STABILIZER_PRICE_PER_PIECE", new_stabilizer_price)
+                    st.success("Material settings updated successfully!")
+                    material_settings_updated = True
+            
+            # Machine Settings
+            with st.expander("Machine Settings"):
+                machine_settings_updated = False
+                
+                st.subheader("Machine Speed Settings")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    new_stitch_speed_40wt = st.number_input(
+                        "40wt Thread Stitch Speed (rpm)",
+                        min_value=100,
+                        max_value=1500,
+                        value=int(DEFAULT_STITCH_SPEED_40WT),
+                        help="Default stitching speed for 40wt thread in rpm"
+                    )
+                
+                with col2:
+                    new_stitch_speed_60wt = st.number_input(
+                        "60wt Thread Stitch Speed (rpm)",
+                        min_value=100,
+                        max_value=1500,
+                        value=int(DEFAULT_STITCH_SPEED_60WT),
+                        help="Default stitching speed for 60wt thread in rpm"
+                    )
+                
+                st.subheader("Machine Configuration")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    new_max_heads = st.number_input(
+                        "Maximum Machine Heads",
+                        min_value=1,
+                        max_value=50,
+                        value=int(DEFAULT_MAX_HEADS),
+                        help="Maximum number of embroidery heads available"
+                    )
+                    
+                    new_coloreel_max_heads = st.number_input(
+                        "Maximum Coloreel Heads",
+                        min_value=1,
+                        max_value=10,
+                        value=int(DEFAULT_COLOREEL_MAX_HEADS),
+                        help="Maximum number of embroidery heads when using Coloreel"
+                    )
+                
+                with col2:
+                    new_hooping_time = st.number_input(
+                        "Hooping Time (seconds)",
+                        min_value=1,
+                        max_value=300,
+                        value=int(HOOPING_TIME_DEFAULT),
+                        help="Average time to hoop an item in seconds"
+                    )
+                
+                if st.button("Update Machine Settings"):
+                    # Update database
+                    database.update_setting("machine_settings", "DEFAULT_STITCH_SPEED_40WT", new_stitch_speed_40wt)
+                    database.update_setting("machine_settings", "DEFAULT_STITCH_SPEED_60WT", new_stitch_speed_60wt)
+                    database.update_setting("machine_settings", "DEFAULT_MAX_HEADS", new_max_heads)
+                    database.update_setting("machine_settings", "DEFAULT_COLOREEL_MAX_HEADS", new_coloreel_max_heads)
+                    database.update_setting("machine_settings", "HOOPING_TIME_DEFAULT", new_hooping_time)
+                    st.success("Machine settings updated successfully!")
+                    machine_settings_updated = True
+            
+            # Labor Settings
+            with st.expander("Labor Settings"):
+                labor_settings_updated = False
+                
+                new_hourly_labor_rate = st.number_input(
+                    "Hourly Labor Rate ($)",
+                    min_value=1.0,
+                    value=float(HOURLY_LABOR_RATE),
+                    format="%.2f",
+                    help="Cost of labor per hour"
+                )
+                
+                if st.button("Update Labor Settings"):
+                    # Update database
+                    database.update_setting("labor_settings", "HOURLY_LABOR_RATE", new_hourly_labor_rate)
+                    st.success("Labor settings updated successfully!")
+                    labor_settings_updated = True
+            
+            # View Database Quotes
+            with st.expander("View Quote Database"):
+                st.subheader("Recent Quotes")
+                quotes = database.get_recent_quotes(limit=20)
+                
+                if not quotes:
+                    st.info("No quotes saved to database yet.")
+                else:
+                    # Create a DataFrame for display
+                    df = pd.DataFrame(quotes)
+                    df['created_at'] = pd.to_datetime(df['created_at'])
+                    df['created_at'] = df['created_at'].dt.strftime('%Y-%m-%d %H:%M')
+                    df = df.rename(columns={
+                        'job_name': 'Job Name',
+                        'customer_name': 'Customer',
+                        'stitch_count': 'Stitches',
+                        'quantity': 'Qty',
+                        'total_cost': 'Total Cost',
+                        'price_per_piece': 'Price/Piece',
+                        'created_at': 'Date'
+                    })
+                    df['Total Cost'] = df['Total Cost'].map('${:.2f}'.format)
+                    df['Price/Piece'] = df['Price/Piece'].map('${:.2f}'.format)
+                    
+                    st.dataframe(df, use_container_width=True)
+            
+            # Reset session when settings are updated
+            if material_settings_updated or machine_settings_updated or labor_settings_updated:
+                if st.button("Reload Application with New Settings"):
+                    st.rerun()
 
 if __name__ == "__main__":
     main()

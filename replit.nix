@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.postgresql
     pkgs.qhull
     pkgs.pkg-config
     pkgs.gtk3
