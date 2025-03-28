@@ -652,54 +652,16 @@ def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None
 
 # Main Application
 def main():
-    # Load custom CSS
-    with open('assets/style.css') as f:
-        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-    
-    # Logo and Header
-    st.markdown(
-        """
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <img src="data:image/svg+xml;base64,{}" width="300">
-        </div>
-        """.format(base64.b64encode(open('assets/logo.svg', 'rb').read()).decode()),
-        unsafe_allow_html=True
-    )
-    
-    # Intro text with better styling
-    st.markdown(
-        """
-        <div style="background-color: white; padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);">
-            <h1 style="font-size: 2rem; margin-bottom: 1rem; text-align: center;">Professional Embroidery Quoting</h1>
-            <p style="font-size: 1.1rem; color: #666; text-align: center;">
-                Analyze designs, calculate costs, and generate detailed quotes in seconds.
-            </p>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    st.title("Embroidery Quoting Tool")
     
     # Tabs for New Quote and History
-    tab1, tab2, tab3 = st.tabs(["📝 Create Quote", "📚 Quote History", "⚙️ Admin Settings"])
+    tab1, tab2, tab3 = st.tabs(["Create Quote", "Quote History", "Admin Settings"])
     
     with tab1:
-        # Step 1: File Upload Section with enhanced styling
-        st.markdown("""
-        <div style="background-color: #f0f8ff; padding: 1.5rem; border-radius: 12px; margin-bottom: 1rem; border-left: 5px solid #0071e3;">
-            <h2 style="margin-top: 0; color: #0071e3; font-weight: 600;">Step 1: Upload Design File</h2>
-            <p style="color: #666;">
-                Start by uploading your embroidery design file in DST or U01 format.
-                The system will analyze stitch count, dimensions, and complexity.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # File uploader with custom styling
-        uploaded_file = st.file_uploader(
-            "Drop your DST or U01 file here",
-            type=["dst", "u01"],
-            help="Upload your embroidery design file in DST or U01 format"
-        )
+        # Step 1: File Upload Section
+        st.header("Step 1: Upload Design File")
+        uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
+                                      help="Upload your embroidery design file in DST or U01 format")
         
         if uploaded_file:
             # Parse the file and save in session state
@@ -746,22 +708,11 @@ def main():
                         )
                         st.image(preview_img, caption="Design Preview", use_container_width=True)
         
-        # Step 2: Job Information & Materials with enhanced styling
-        st.markdown("""
-        <div style="background-color: #ebf7ff; padding: 1.5rem; border-radius: 12px; margin: 1.5rem 0 1rem 0; border-left: 5px solid #0071e3;">
-            <h2 style="margin-top: 0; color: #0071e3; font-weight: 600;">Step 2: Job Information & Materials</h2>
-            <p style="color: #666;">
-                Enter job details and material preferences to generate an accurate cost estimate.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Step 2: Job Information & Materials
+        st.header("Step 2: Job Information & Materials")
         
-        # Job Info Card with modern styling
-        st.markdown("""
-        <div style="background-color: white; padding: 0.5rem 1rem; border-radius: 8px; margin-bottom: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h3 style="color: #1d1d1f; font-weight: 500;">Job Information</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        # Job Info Card
+        st.subheader("Job Information")
         col1, col2 = st.columns(2)
         
         with col1:
@@ -784,12 +735,8 @@ def main():
                                placeholder="e.g., Left Chest, Cap Front, etc.",
                                help="Where the design will be placed on the garment")
         
-        # Technical Settings Card with modern styling
-        st.markdown("""
-        <div style="background-color: white; padding: 0.5rem 1rem; border-radius: 8px; margin: 1.5rem 0 0.5rem 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h3 style="color: #1d1d1f; font-weight: 500;">Machine & Technical Settings</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        # Technical Settings Card
+        st.subheader("Machine & Technical Settings")
         
         col1, col2, col3 = st.columns(3)
         
@@ -921,12 +868,8 @@ def main():
         use_foam = st.checkbox("Use 3D Foam", value=False,
                              help="Check if using 3D foam for raised embroidery effect")
         
-        # Pricing Information Card with modern styling
-        st.markdown("""
-        <div style="background-color: white; padding: 0.5rem 1rem; border-radius: 8px; margin: 1.5rem 0 0.5rem 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h3 style="color: #1d1d1f; font-weight: 500;">Pricing Information</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        # Pricing Information Card
+        st.subheader("Pricing Information")
         
         col1, col2 = st.columns(2)
         
@@ -950,20 +893,8 @@ def main():
                                      step=5.0,
                                      help="One-time fee for setup, etc.")
         
-        # Add spacing
-        st.write("")
-        
-        # Calculate Button with enhanced styling
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown("""
-            <div style="text-align: center; margin: 1.5rem 0;">
-                <p style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">
-                    All fields complete? Generate your detailed quote now.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            calculate_pressed = st.button("📊 Calculate Quote", type="primary", use_container_width=True)
+        # Calculate Button
+        calculate_pressed = st.button("Calculate Quote", type="primary")
         
         if calculate_pressed and st.session_state.design_info:
             # Gather all inputs
@@ -1016,15 +947,8 @@ def main():
             }
             database.save_quote(quote_data)
             
-            # Display Results with modern styling
-            st.markdown("""
-            <div style="background-color: #f0f8ff; padding: 1.5rem; border-radius: 12px; margin: 2rem 0 1rem 0; border-left: 5px solid #0071e3;">
-                <h2 style="margin-top: 0; color: #0071e3; font-weight: 600;">Quote Results</h2>
-                <p style="color: #666;">
-                    Here's the detailed breakdown of your embroidery quote. Use the download options below to save or share with clients.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+            # Display Results
+            st.header("Quote Results")
             
             # Summary card
             col1, col2 = st.columns(2)
@@ -1072,15 +996,8 @@ def main():
             detailed_pdf = generate_detailed_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
             customer_pdf = generate_customer_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
             
-            # Download buttons with improved styling
-            st.markdown("""
-            <div style="background-color: white; padding: 0.5rem 1rem; border-radius: 8px; margin: 1.5rem 0 0.5rem 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h3 style="color: #1d1d1f; font-weight: 500;">Download Quotes</h3>
-                <p style="color: #666; font-size: 0.9rem;">
-                    Generate and download quote PDFs for internal use or to share with your customers.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+            # Download buttons
+            st.subheader("Download Quotes")
             col1, col2 = st.columns(2)
             
             with col1:
@@ -1098,16 +1015,9 @@ def main():
         elif calculate_pressed and not st.session_state.design_info:
             st.error("Please upload a DST file first to generate a quote.")
     
-    # History Tab with enhanced styling
+    # History Tab
     with tab2:
-        st.markdown("""
-        <div style="background-color: #f0f8ff; padding: 1.5rem; border-radius: 12px; margin: 0.5rem 0 1.5rem 0; border-left: 5px solid #0071e3;">
-            <h2 style="margin-top: 0; color: #0071e3; font-weight: 600;">Quote History</h2>
-            <p style="color: #666;">
-                Review your previously generated embroidery quotes, including detailed breakdowns and downloadable PDFs.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("Quote History")
         
         if not st.session_state.history:
             st.info("No quote history yet. Create quotes in the 'Create Quote' tab to see them here.")
@@ -1147,18 +1057,10 @@ def main():
                             unsafe_allow_html=True
                         )
     
-    # Admin Settings Tab with enhanced styling
+    # Admin Settings Tab
     with tab3:
-        st.markdown("""
-        <div style="background-color: #fff9e6; padding: 1.5rem; border-radius: 12px; margin: 0.5rem 0 1.5rem 0; border-left: 5px solid #ff9900;">
-            <h2 style="margin-top: 0; color: #ff9900; font-weight: 600;">Admin Settings</h2>
-            <p style="color: #666;">
-                Configure global settings for materials, machine performance, and labor rates that will affect all future quotes.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.warning("⚠️ Changes to these settings will affect all future quotes. Use with caution.")
+        st.header("Admin Settings")
+        st.warning("Changes to these settings will affect all future quotes. Use with caution.")
         
         # Admin settings (no password protection as requested)
         material_settings_updated = False
