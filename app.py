@@ -134,8 +134,8 @@ def parse_embroidery_file(uploaded_file):
         return None
 
 def render_design_preview(pattern, width=400, height=400, use_foam=False):
-    """Render a visual preview of the embroidery design"""
-    # Calculate the scale factor to fit the design within the specified dimensions
+    """Render a visual preview of the embroidery design at 1:1 scale"""
+    # Get design dimensions
     stitches = pattern.stitches
     min_x, min_y, max_x, max_y = float('inf'), float('inf'), float('-inf'), float('-inf')
     
@@ -149,18 +149,27 @@ def render_design_preview(pattern, width=400, height=400, use_foam=False):
     design_width = max_x - min_x
     design_height = max_y - min_y
     
-    scale_x = (width - 40) / design_width if design_width > 0 else 1
-    scale_y = (height - 40) / design_height if design_height > 0 else 1
-    scale = min(scale_x, scale_y)
+    # pyembroidery units are 0.1mm, convert to pixels (assuming 96 DPI)
+    # 1 inch = 25.4mm = 96 pixels
+    # So 0.1mm = 96 / 254 pixels
+    pixels_per_unit = 96.0 / 254.0
     
-    # Create a new image with white background
-    img = Image.new('RGB', (width, height), color='white')
+    # Calculate the exact pixel dimensions needed for 1:1 scale
+    pixel_width = int(design_width * pixels_per_unit) + 80  # Add padding
+    pixel_height = int(design_height * pixels_per_unit) + 80  # Add padding
+    
+    # Ensure minimum dimensions
+    pixel_width = max(pixel_width, width)
+    pixel_height = max(pixel_height, height)
+    
+    # Create an image with the correct dimensions for 1:1 scale
+    img = Image.new('RGB', (pixel_width, pixel_height), color='white')
     draw = ImageDraw.Draw(img)
     
     # Draw design boundary if foam is used (add 0.5 inches around the design)
     if use_foam:
         # Convert 0.5 inches to pyembroidery units (0.1mm)
-        foam_margin = int(0.5 * 25.4 * 10)
+        foam_margin = int(0.5 * 25.4 * 10)  # 0.5 inches in 0.1mm units
         
         # Calculate boundary with foam margin
         boundary_min_x = min_x - foam_margin
@@ -168,17 +177,19 @@ def render_design_preview(pattern, width=400, height=400, use_foam=False):
         boundary_max_x = max_x + foam_margin
         boundary_max_y = max_y + foam_margin
         
-        # Draw foam boundary
-        boundary_x1 = (boundary_min_x - min_x) * scale + width // 2
-        boundary_y1 = (boundary_min_y - min_y) * scale + height // 2
-        boundary_x2 = (boundary_max_x - min_x) * scale + width // 2
-        boundary_y2 = (boundary_max_y - min_y) * scale + height // 2
+        # Calculate pixel coordinates for the foam boundary
+        boundary_x1 = (boundary_min_x - min_x) * pixels_per_unit + pixel_width // 2 - (design_width * pixels_per_unit) // 2
+        boundary_y1 = (boundary_min_y - min_y) * pixels_per_unit + pixel_height // 2 - (design_height * pixels_per_unit) // 2
+        boundary_x2 = (boundary_max_x - min_x) * pixels_per_unit + pixel_width // 2 - (design_width * pixels_per_unit) // 2
+        boundary_y2 = (boundary_max_y - min_y) * pixels_per_unit + pixel_height // 2 - (design_height * pixels_per_unit) // 2
         
-        draw.rectangle([boundary_x1, boundary_y1, boundary_x2, boundary_y2], outline='lightblue', width=2)
+        # Convert to tuple for the rectangle function
+        boundary_coords = tuple([boundary_x1, boundary_y1, boundary_x2, boundary_y2])
+        draw.rectangle(boundary_coords, outline='lightblue', width=2)
     
-    # Center the design
-    offset_x = width // 2
-    offset_y = height // 2
+    # Center the design in the image
+    offset_x = pixel_width // 2 - (design_width * pixels_per_unit) // 2
+    offset_y = pixel_height // 2 - (design_height * pixels_per_unit) // 2
     
     # Draw stitches
     current_color = (0, 0, 0)  # Default color is black
@@ -187,26 +198,43 @@ def render_design_preview(pattern, width=400, height=400, use_foam=False):
     for stitch in stitches:
         x, y, command = stitch
         
+        # Convert to pixel coordinates
+        pixel_x = (x - min_x) * pixels_per_unit + offset_x
+        pixel_y = (y - min_y) * pixels_per_unit + offset_y
+        
         # Change color if needed
         if command == pyembroidery.COLOR_CHANGE:
-            # Cycle through some distinct colors for visualization
+            # Use a predefined color sequence for better visualization
             colors = [(0, 0, 0), (255, 0, 0), (0, 0, 255), (0, 128, 0), (128, 0, 128), (255, 165, 0)]
             current_color = colors[hash(str(current_color)) % len(colors)]
         
         # Skip jump stitches for cleaner visualization
         if command == pyembroidery.JUMP:
-            last_x, last_y = (x - min_x) * scale + offset_x, (y - min_y) * scale + offset_y
+            last_x, last_y = pixel_x, pixel_y
             continue
         
         # Draw the stitch
         if last_x is not None and last_y is not None:
             draw.line(
-                [last_x, last_y, (x - min_x) * scale + offset_x, (y - min_y) * scale + offset_y],
+                [last_x, last_y, pixel_x, pixel_y],
                 fill=current_color,
                 width=1
             )
         
-        last_x, last_y = (x - min_x) * scale + offset_x, (y - min_y) * scale + offset_y
+        last_x, last_y = pixel_x, pixel_y
+    
+    # Add scale indicator (1 inch = 96 pixels)
+    draw.line([(20, pixel_height - 30), (20 + 96, pixel_height - 30)], fill=(0, 0, 0), width=2)
+    draw.text((20, pixel_height - 25), "1 inch", fill=(0, 0, 0))
+    
+    # Resize if needed to fit display area while maintaining aspect ratio
+    if pixel_width > width or pixel_height > height:
+        scale_x = width / pixel_width
+        scale_y = height / pixel_height
+        scale = min(scale_x, scale_y)
+        new_width = int(pixel_width * scale)
+        new_height = int(pixel_height * scale)
+        img = img.resize((new_width, new_height), Image.LANCZOS)
     
     return img
 
@@ -657,8 +685,15 @@ def main():
         
         with col1:
             # Ensure all slider values are integers
-            max_heads = int(DEFAULT_MAX_HEADS)
-            active_heads = st.slider("Machine Heads", 1, max_heads, min(4, max_heads), 
+            max_heads = int(float(DEFAULT_MAX_HEADS))
+            
+            # Default active heads based on quantity
+            if 'quantity' in locals():
+                default_heads = min(quantity, max_heads) if quantity < 15 else max_heads
+            else:
+                default_heads = min(4, max_heads)
+                
+            active_heads = st.slider("Machine Heads", 1, max_heads, default_heads, 
                                   help="Number of embroidery heads that will run simultaneously")
             
             coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
@@ -904,204 +939,189 @@ def main():
         st.header("Admin Settings")
         st.warning("Changes to these settings will affect all future quotes. Use with caution.")
         
-        # Password protection for admin settings
-        if 'admin_authenticated' not in st.session_state:
-            st.session_state.admin_authenticated = False
+        # Admin settings (no password protection as requested)
+        material_settings_updated = False
+        machine_settings_updated = False
+        labor_settings_updated = False
+        
+        # Material Settings
+        with st.expander("Material Settings", expanded=True):
+            st.subheader("Thread Settings")
+            col1, col2 = st.columns(2)
             
-        if not st.session_state.admin_authenticated:
-            admin_password = st.text_input("Admin Password", type="password")
-            if st.button("Login"):
-                # Simple password protection - in a real app, use a more secure method
-                if admin_password == "admin123":  # This is just a placeholder - use proper auth in production
-                    st.session_state.admin_authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Incorrect password")
-        else:
-            # Material Settings
-            with st.expander("Material Settings", expanded=True):
-                material_settings_updated = False
-                
-                st.subheader("Thread Settings")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    new_polyneon_5500yd_price = st.number_input(
-                        "Polyneon 5500yd Spool Price ($)",
-                        min_value=0.01,
-                        value=float(POLYNEON_5500YD_PRICE),
-                        format="%.2f",
-                        help="Cost of a 5500 yard spool of Polyneon thread"
-                    )
-                    
-                    new_polyneon_1100yd_price = st.number_input(
-                        "Polyneon 1100yd Spool Price ($)",
-                        min_value=0.01,
-                        value=float(POLYNEON_1100YD_PRICE),
-                        format="%.2f",
-                        help="Cost of a 1100 yard spool of Polyneon thread"
-                    )
-                
-                with col2:
-                    new_bobbin_144_price = st.number_input(
-                        "Bobbin 144-Pack Price ($)",
-                        min_value=0.01,
-                        value=float(BOBBIN_144_PRICE),
-                        format="%.2f",
-                        help="Cost of a pack of 144 bobbins"
-                    )
-                    
-                    new_bobbin_yards = st.number_input(
-                        "Yards Per Bobbin",
-                        min_value=1,
-                        value=int(float(BOBBIN_YARDS)),
-                        help="Number of yards of thread per bobbin"
-                    )
-                
-                st.subheader("Other Materials")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    new_foam_sheet_price = st.number_input(
-                        "3D Foam Sheet Price ($)",
-                        min_value=0.01,
-                        value=float(FOAM_SHEET_PRICE),
-                        format="%.2f",
-                        help="Cost per sheet of 3D foam"
-                    )
-                
-                with col2:
-                    new_stabilizer_price = st.number_input(
-                        "Stabilizer Price Per Piece ($)",
-                        min_value=0.01,
-                        value=float(STABILIZER_PRICE_PER_PIECE),
-                        format="%.2f",
-                        help="Cost per piece of stabilizer backing"
-                    )
-                
-                if st.button("Update Material Settings"):
-                    # Update database
-                    database.update_setting("material_settings", "POLYNEON_5500YD_PRICE", new_polyneon_5500yd_price)
-                    database.update_setting("material_settings", "POLYNEON_1100YD_PRICE", new_polyneon_1100yd_price)
-                    database.update_setting("material_settings", "BOBBIN_144_PRICE", new_bobbin_144_price)
-                    database.update_setting("material_settings", "BOBBIN_YARDS", new_bobbin_yards)
-                    database.update_setting("material_settings", "FOAM_SHEET_PRICE", new_foam_sheet_price)
-                    database.update_setting("material_settings", "STABILIZER_PRICE_PER_PIECE", new_stabilizer_price)
-                    st.success("Material settings updated successfully!")
-                    material_settings_updated = True
-            
-            # Machine Settings
-            with st.expander("Machine Settings"):
-                machine_settings_updated = False
-                
-                st.subheader("Machine Speed Settings")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    new_stitch_speed_40wt = st.number_input(
-                        "40wt Thread Stitch Speed (rpm)",
-                        min_value=100,
-                        max_value=1500,
-                        value=int(float(DEFAULT_STITCH_SPEED_40WT)),
-                        help="Default stitching speed for 40wt thread in rpm"
-                    )
-                
-                with col2:
-                    new_stitch_speed_60wt = st.number_input(
-                        "60wt Thread Stitch Speed (rpm)",
-                        min_value=100,
-                        max_value=1500,
-                        value=int(float(DEFAULT_STITCH_SPEED_60WT)),
-                        help="Default stitching speed for 60wt thread in rpm"
-                    )
-                
-                st.subheader("Machine Configuration")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    new_max_heads = st.number_input(
-                        "Maximum Machine Heads",
-                        min_value=1,
-                        max_value=50,
-                        value=int(float(DEFAULT_MAX_HEADS)),
-                        help="Maximum number of embroidery heads available"
-                    )
-                    
-                    new_coloreel_max_heads = st.number_input(
-                        "Maximum Coloreel Heads",
-                        min_value=1,
-                        max_value=10,
-                        value=int(float(DEFAULT_COLOREEL_MAX_HEADS)),
-                        help="Maximum number of embroidery heads when using Coloreel"
-                    )
-                
-                with col2:
-                    new_hooping_time = st.number_input(
-                        "Hooping Time (seconds)",
-                        min_value=1,
-                        max_value=300,
-                        value=int(float(HOOPING_TIME_DEFAULT)),
-                        help="Average time to hoop an item in seconds"
-                    )
-                
-                if st.button("Update Machine Settings"):
-                    # Update database
-                    database.update_setting("machine_settings", "DEFAULT_STITCH_SPEED_40WT", new_stitch_speed_40wt)
-                    database.update_setting("machine_settings", "DEFAULT_STITCH_SPEED_60WT", new_stitch_speed_60wt)
-                    database.update_setting("machine_settings", "DEFAULT_MAX_HEADS", new_max_heads)
-                    database.update_setting("machine_settings", "DEFAULT_COLOREEL_MAX_HEADS", new_coloreel_max_heads)
-                    database.update_setting("machine_settings", "HOOPING_TIME_DEFAULT", new_hooping_time)
-                    st.success("Machine settings updated successfully!")
-                    machine_settings_updated = True
-            
-            # Labor Settings
-            with st.expander("Labor Settings"):
-                labor_settings_updated = False
-                
-                new_hourly_labor_rate = st.number_input(
-                    "Hourly Labor Rate ($)",
-                    min_value=1.0,
-                    value=float(HOURLY_LABOR_RATE),
+            with col1:
+                new_polyneon_5500yd_price = st.number_input(
+                    "Polyneon 5500yd Spool Price ($)",
+                    min_value=0.01,
+                    value=float(POLYNEON_5500YD_PRICE),
                     format="%.2f",
-                    help="Cost of labor per hour"
+                    help="Cost of a 5500 yard spool of Polyneon thread"
                 )
                 
-                if st.button("Update Labor Settings"):
-                    # Update database
-                    database.update_setting("labor_settings", "HOURLY_LABOR_RATE", new_hourly_labor_rate)
-                    st.success("Labor settings updated successfully!")
-                    labor_settings_updated = True
+                new_polyneon_1100yd_price = st.number_input(
+                    "Polyneon 1100yd Spool Price ($)",
+                    min_value=0.01,
+                    value=float(POLYNEON_1100YD_PRICE),
+                    format="%.2f",
+                    help="Cost of a 1100 yard spool of Polyneon thread"
+                )
             
-            # View Database Quotes
-            with st.expander("View Quote Database"):
-                st.subheader("Recent Quotes")
-                quotes = database.get_recent_quotes(limit=20)
+            with col2:
+                new_bobbin_144_price = st.number_input(
+                    "Bobbin 144-Pack Price ($)",
+                    min_value=0.01,
+                    value=float(BOBBIN_144_PRICE),
+                    format="%.2f",
+                    help="Cost of a pack of 144 bobbins"
+                )
                 
-                if not quotes:
-                    st.info("No quotes saved to database yet.")
-                else:
-                    # Create a DataFrame for display
-                    df = pd.DataFrame(quotes)
-                    df['created_at'] = pd.to_datetime(df['created_at'])
-                    df['created_at'] = df['created_at'].dt.strftime('%Y-%m-%d %H:%M')
-                    df = df.rename(columns={
-                        'job_name': 'Job Name',
-                        'customer_name': 'Customer',
-                        'stitch_count': 'Stitches',
-                        'quantity': 'Qty',
-                        'total_cost': 'Total Cost',
-                        'price_per_piece': 'Price/Piece',
-                        'created_at': 'Date'
-                    })
-                    df['Total Cost'] = df['Total Cost'].map('${:.2f}'.format)
-                    df['Price/Piece'] = df['Price/Piece'].map('${:.2f}'.format)
-                    
-                    st.dataframe(df, use_container_width=True)
+                new_bobbin_yards = st.number_input(
+                    "Yards Per Bobbin",
+                    min_value=1,
+                    value=int(float(BOBBIN_YARDS)),
+                    help="Number of yards of thread per bobbin"
+                )
             
-            # Reset session when settings are updated
-            if material_settings_updated or machine_settings_updated or labor_settings_updated:
-                if st.button("Reload Application with New Settings"):
-                    st.rerun()
+            st.subheader("Other Materials")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_foam_sheet_price = st.number_input(
+                    "3D Foam Sheet Price ($)",
+                    min_value=0.01,
+                    value=float(FOAM_SHEET_PRICE),
+                    format="%.2f",
+                    help="Cost per sheet of 3D foam"
+                )
+            
+            with col2:
+                new_stabilizer_price = st.number_input(
+                    "Stabilizer Price Per Piece ($)",
+                    min_value=0.01,
+                    value=float(STABILIZER_PRICE_PER_PIECE),
+                    format="%.2f",
+                    help="Cost per piece of stabilizer backing"
+                )
+            
+            if st.button("Update Material Settings"):
+                # Update database
+                database.update_setting("material_settings", "POLYNEON_5500YD_PRICE", new_polyneon_5500yd_price)
+                database.update_setting("material_settings", "POLYNEON_1100YD_PRICE", new_polyneon_1100yd_price)
+                database.update_setting("material_settings", "BOBBIN_144_PRICE", new_bobbin_144_price)
+                database.update_setting("material_settings", "BOBBIN_YARDS", new_bobbin_yards)
+                database.update_setting("material_settings", "FOAM_SHEET_PRICE", new_foam_sheet_price)
+                database.update_setting("material_settings", "STABILIZER_PRICE_PER_PIECE", new_stabilizer_price)
+                st.success("Material settings updated successfully!")
+                material_settings_updated = True
+        
+        # Machine Settings
+        with st.expander("Machine Settings"):
+            st.subheader("Machine Speed Settings")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_stitch_speed_40wt = st.number_input(
+                    "40wt Thread Stitch Speed (rpm)",
+                    min_value=100,
+                    max_value=1500,
+                    value=int(float(DEFAULT_STITCH_SPEED_40WT)),
+                    help="Default stitching speed for 40wt thread in rpm"
+                )
+            
+            with col2:
+                new_stitch_speed_60wt = st.number_input(
+                    "60wt Thread Stitch Speed (rpm)",
+                    min_value=100,
+                    max_value=1500,
+                    value=int(float(DEFAULT_STITCH_SPEED_60WT)),
+                    help="Default stitching speed for 60wt thread in rpm"
+                )
+            
+            st.subheader("Machine Configuration")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_max_heads = st.number_input(
+                    "Maximum Machine Heads",
+                    min_value=1,
+                    max_value=50,
+                    value=int(float(DEFAULT_MAX_HEADS)),
+                    help="Maximum number of embroidery heads available"
+                )
+                
+                new_coloreel_max_heads = st.number_input(
+                    "Maximum Coloreel Heads",
+                    min_value=1,
+                    max_value=10,
+                    value=int(float(DEFAULT_COLOREEL_MAX_HEADS)),
+                    help="Maximum number of embroidery heads when using Coloreel"
+                )
+            
+            with col2:
+                new_hooping_time = st.number_input(
+                    "Hooping Time (seconds)",
+                    min_value=1,
+                    max_value=300,
+                    value=int(float(HOOPING_TIME_DEFAULT)),
+                    help="Average time to hoop an item in seconds"
+                )
+            
+            if st.button("Update Machine Settings"):
+                # Update database
+                database.update_setting("machine_settings", "DEFAULT_STITCH_SPEED_40WT", new_stitch_speed_40wt)
+                database.update_setting("machine_settings", "DEFAULT_STITCH_SPEED_60WT", new_stitch_speed_60wt)
+                database.update_setting("machine_settings", "DEFAULT_MAX_HEADS", new_max_heads)
+                database.update_setting("machine_settings", "DEFAULT_COLOREEL_MAX_HEADS", new_coloreel_max_heads)
+                database.update_setting("machine_settings", "HOOPING_TIME_DEFAULT", new_hooping_time)
+                st.success("Machine settings updated successfully!")
+                machine_settings_updated = True
+        
+        # Labor Settings
+        with st.expander("Labor Settings"):
+            new_hourly_labor_rate = st.number_input(
+                "Hourly Labor Rate ($)",
+                min_value=1.0,
+                value=float(HOURLY_LABOR_RATE),
+                format="%.2f",
+                help="Cost of labor per hour"
+            )
+            
+            if st.button("Update Labor Settings"):
+                # Update database
+                database.update_setting("labor_settings", "HOURLY_LABOR_RATE", new_hourly_labor_rate)
+                st.success("Labor settings updated successfully!")
+                labor_settings_updated = True
+        
+        # View Database Quotes
+        with st.expander("View Quote Database"):
+            st.subheader("Recent Quotes")
+            quotes = database.get_recent_quotes(limit=20)
+            
+            if not quotes:
+                st.info("No quotes saved to database yet.")
+            else:
+                # Create a DataFrame for display
+                df = pd.DataFrame(quotes)
+                df['created_at'] = pd.to_datetime(df['created_at'])
+                df['created_at'] = df['created_at'].dt.strftime('%Y-%m-%d %H:%M')
+                df = df.rename(columns={
+                    'job_name': 'Job Name',
+                    'customer_name': 'Customer',
+                    'stitch_count': 'Stitches',
+                    'quantity': 'Qty',
+                    'total_cost': 'Total Cost',
+                    'price_per_piece': 'Price/Piece',
+                    'created_at': 'Date'
+                })
+                df['Total Cost'] = df['Total Cost'].map('${:.2f}'.format)
+                df['Price/Piece'] = df['Price/Piece'].map('${:.2f}'.format)
+                
+                st.dataframe(df, use_container_width=True)
+        
+        # Reset session when settings are updated
+        if material_settings_updated or machine_settings_updated or labor_settings_updated:
+            if st.button("Reload Application with New Settings"):
+                st.rerun()
 
 if __name__ == "__main__":
     main()
