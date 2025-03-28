@@ -656,15 +656,18 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            active_heads = st.slider("Machine Heads", 1, DEFAULT_MAX_HEADS, min(4, DEFAULT_MAX_HEADS), 
+            # Ensure all slider values are integers
+            max_heads = int(DEFAULT_MAX_HEADS)
+            active_heads = st.slider("Machine Heads", 1, max_heads, min(4, max_heads), 
                                   help="Number of embroidery heads that will run simultaneously")
             
             coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
                                         help="Enable if using Coloreel instant thread coloring technology")
             
-            if coloreel_enabled and active_heads > DEFAULT_COLOREEL_MAX_HEADS:
-                active_heads = DEFAULT_COLOREEL_MAX_HEADS
-                st.warning(f"Max heads limited to {DEFAULT_COLOREEL_MAX_HEADS} with Coloreel enabled")
+            coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
+            if coloreel_enabled and active_heads > coloreel_max_heads:
+                active_heads = coloreel_max_heads
+                st.warning(f"Max heads limited to {coloreel_max_heads} with Coloreel enabled")
         
         with col2:
             thread_weight = st.selectbox("Thread Weight", 
@@ -951,7 +954,7 @@ def main():
                     new_bobbin_yards = st.number_input(
                         "Yards Per Bobbin",
                         min_value=1,
-                        value=int(BOBBIN_YARDS),
+                        value=int(float(BOBBIN_YARDS)),
                         help="Number of yards of thread per bobbin"
                     )
                 
@@ -999,7 +1002,7 @@ def main():
                         "40wt Thread Stitch Speed (rpm)",
                         min_value=100,
                         max_value=1500,
-                        value=int(DEFAULT_STITCH_SPEED_40WT),
+                        value=int(float(DEFAULT_STITCH_SPEED_40WT)),
                         help="Default stitching speed for 40wt thread in rpm"
                     )
                 
@@ -1008,7 +1011,7 @@ def main():
                         "60wt Thread Stitch Speed (rpm)",
                         min_value=100,
                         max_value=1500,
-                        value=int(DEFAULT_STITCH_SPEED_60WT),
+                        value=int(float(DEFAULT_STITCH_SPEED_60WT)),
                         help="Default stitching speed for 60wt thread in rpm"
                     )
                 
@@ -1020,7 +1023,7 @@ def main():
                         "Maximum Machine Heads",
                         min_value=1,
                         max_value=50,
-                        value=int(DEFAULT_MAX_HEADS),
+                        value=int(float(DEFAULT_MAX_HEADS)),
                         help="Maximum number of embroidery heads available"
                     )
                     
@@ -1028,7 +1031,7 @@ def main():
                         "Maximum Coloreel Heads",
                         min_value=1,
                         max_value=10,
-                        value=int(DEFAULT_COLOREEL_MAX_HEADS),
+                        value=int(float(DEFAULT_COLOREEL_MAX_HEADS)),
                         help="Maximum number of embroidery heads when using Coloreel"
                     )
                 
@@ -1037,7 +1040,7 @@ def main():
                         "Hooping Time (seconds)",
                         min_value=1,
                         max_value=300,
-                        value=int(HOOPING_TIME_DEFAULT),
+                        value=int(float(HOOPING_TIME_DEFAULT)),
                         help="Average time to hoop an item in seconds"
                     )
                 
