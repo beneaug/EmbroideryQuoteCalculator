@@ -1115,47 +1115,73 @@ def main():
             active_heads = st.slider("Machine Heads", 1, max_heads, default_heads, 
                                   help="Number of embroidery heads that will run simultaneously")
             
+            # Store previous state for comparison
+            prev_coloreel_enabled = st.session_state.get('coloreel_enabled', False)
+            
             # Coloreel ITCU checkbox
-            coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
-                                       help="Enable if using Coloreel instant thread coloring technology")
+            coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=prev_coloreel_enabled,
+                                       help="Enable if using Coloreel instant thread coloring technology",
+                                       key='coloreel_checkbox')
+            
+            # Update session state
+            st.session_state.coloreel_enabled = coloreel_enabled
             
             # Complex production checkbox - auto-check if Coloreel is enabled
-            # When coloreel is enabled, complex_production should be automatically enabled but still adjustable
-            complex_production = st.checkbox("Complex Production", 
-                                         value=coloreel_enabled,  # Auto-check if Coloreel is enabled
-                                         help="Enable for complex designs that require slower stitching and additional attention")
+            prev_complex_production = st.session_state.get('complex_production', False)
+            complex_production_default = coloreel_enabled or prev_complex_production
             
-            # If coloreel is enabled, complex production should also be enabled
+            complex_production = st.checkbox("Complex Production", 
+                                         value=complex_production_default,
+                                         help="Enable for complex designs that require slower stitching and additional attention",
+                                         key='complex_production_checkbox')
+            
+            # Update session state
+            st.session_state.complex_production = complex_production
+            
+            # Ensure complex production is enabled if Coloreel is enabled
             if coloreel_enabled and not complex_production:
                 complex_production = True
-                st.session_state["complex_production"] = True
+                st.session_state.complex_production = True
             
-            # Custom productivity rate slider (always shown when coloreel is enabled or complex production is enabled)
+            # Custom productivity rate slider
             custom_productivity_rate = None
-            if complex_production or coloreel_enabled:
-                # If Coloreel is enabled, display the Coloreel rate info
-                if coloreel_enabled:
-                    # Override custom productivity rate with Coloreel rate
-                    custom_productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
-                    st.caption(f"Coloreel Productivity Rate: {custom_productivity_rate:.2f} ({int(custom_productivity_rate * 100)}% efficiency)")
-                else:
-                    # Calculate default based on complex production
-                    default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
-                    min_rate = 0.2  # 20% efficiency
-                    max_rate = 1.0  # 100% efficiency
-                    step = 0.05
-                    
-                    custom_productivity_rate = st.slider(
-                        "Productivity Rate", 
-                        min_value=min_rate,
-                        max_value=max_rate,
-                        value=default_rate,
-                        step=step,
-                        format="%.2f",
-                        help="Adjust the productivity rate (lower values = slower production)"
-                    )
-                    
-                    st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
+            
+            # For Coloreel, use fixed rate and always show slider
+            if coloreel_enabled:
+                custom_productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+                
+                # Show a disabled/readonly slider for visual consistency
+                st.slider(
+                    "Coloreel Productivity Rate", 
+                    min_value=0.2,  # 20% efficiency
+                    max_value=1.0,  # 100% efficiency
+                    value=custom_productivity_rate,
+                    disabled=True,
+                    format="%.2f",
+                    key='coloreel_productivity_slider'
+                )
+                
+                st.caption(f"Fixed Coloreel Rate: {custom_productivity_rate:.2f} ({int(custom_productivity_rate * 100)}% efficiency)")
+                
+            # For complex production without Coloreel, show adjustable slider
+            elif complex_production:
+                default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+                min_rate = 0.2  # 20% efficiency
+                max_rate = 1.0  # 100% efficiency
+                step = 0.05
+                
+                custom_productivity_rate = st.slider(
+                    "Productivity Rate", 
+                    min_value=min_rate,
+                    max_value=max_rate,
+                    value=default_rate,
+                    step=step,
+                    format="%.2f",
+                    key='complex_productivity_slider',
+                    help="Adjust the productivity rate (lower values = slower production)"
+                )
+                
+                st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
             
             # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
