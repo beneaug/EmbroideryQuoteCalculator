@@ -652,6 +652,131 @@ def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None
 
 # Main Application
 def main():
+    # Custom CSS for iOS/iCloud-inspired design
+    st.markdown("""
+    <style>
+    /* Main container and overall styles */
+    .main {
+        background-color: #ffecc6;
+        background-image: linear-gradient(135deg, #ffecc6 0%, #ffac4b 100%);
+        padding: 20px;
+        border-radius: 10px;
+    }
+    
+    /* Header styling */
+    h1, h2, h3 {
+        color: #3a1d0d;
+        font-weight: 700;
+    }
+    
+    h1 {
+        font-size: 3rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    /* Card styling */
+    div.stCard {
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+        background-color: #fff9f0;
+        border: none;
+    }
+    
+    /* Input fields */
+    div.stTextInput > div > div > input {
+        border-radius: 10px;
+        border: 1px solid #fcd587;
+        padding: 10px 15px;
+        background-color: #fff9f0;
+    }
+    
+    div.stSelectbox > div > div > div {
+        border-radius: 10px;
+        border: 1px solid #fcd587;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        border-radius: 10px;
+        font-weight: bold;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+    
+    /* Metric display */
+    div.stMetric {
+        background-color: #fff9f0;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        margin-bottom: 10px;
+    }
+    
+    div.stMetric > div {
+        align-items: center;
+    }
+    
+    div.stMetric label {
+        font-weight: 600;
+        color: #3a1d0d;
+    }
+    
+    /* File uploader */
+    .stUploader {
+        border: 2px dashed #f3770c;
+        border-radius: 15px;
+        padding: 20px;
+        background-color: #fff9f0;
+        text-align: center;
+    }
+    
+    /* Tab styling */
+    button.stTab {
+        font-weight: 600;
+        border-radius: 10px 10px 0 0;
+        padding: 10px 20px;
+    }
+    
+    button.stTab[aria-selected="true"] {
+        background-color: #fff9f0;
+        border-bottom: 3px solid #f3770c;
+    }
+    
+    div.stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    
+    /* Expander styling */
+    .stExpander {
+        border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* Progress bar */
+    div.stProgress > div > div {
+        border-radius: 10px;
+    }
+    
+    /* Slider adjustments */
+    div.stSlider {
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+    
+    /* Images */
+    .stImage img {
+        border-radius: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.title("Embroidery Quoting Tool")
     
     # Tabs for New Quote and History
@@ -660,8 +785,30 @@ def main():
     with tab1:
         # Step 1: File Upload Section
         st.header("Step 1: Upload Design File")
+        
+        # Custom file uploader with iOS-style design
+        st.markdown("""
+        <div class="upload-container" style="
+            background-color: #fff9f0;
+            border: 2px dashed #f3770c;
+            border-radius: 15px;
+            padding: 30px 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        ">
+            <div style="margin-bottom: 15px;">
+                <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 4V16M12 4L8 8M12 4L16 8" stroke="#f3770c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M5 12V18C5 19.1046 5.89543 20 7 20H17C18.1046 20 19 19.1046 19 18V12" stroke="#f3770c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <p style="color: #3a1d0d; font-size: 18px; font-weight: 600; margin-bottom: 5px;">Drag and drop file here</p>
+            <p style="color: #8b6c55; font-size: 14px; margin-top: 0;">Limit 200MB per file · DST, U01</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
-                                      help="Upload your embroidery design file in DST or U01 format")
+                                      help="Upload your embroidery design file in DST or U01 format", label_visibility="collapsed")
         
         if uploaded_file:
             # Parse the file and save in session state
@@ -676,6 +823,10 @@ def main():
                     # Basic design metrics
                     with col1:
                         st.metric("Stitch Count", f"{st.session_state.design_info['stitch_count']:,}")
+                        # Add thread length in yards and meters
+                        thread_yards = st.session_state.design_info['thread_length_yards']
+                        thread_meters = thread_yards * 0.9144  # Convert yards to meters
+                        st.metric("Thread Length", f"{thread_yards:.2f} yards ({thread_meters:.2f} meters)")
                         st.metric("Colors", f"{st.session_state.design_info['color_changes']}")
                         st.metric("Dimensions", 
                                 f"{st.session_state.design_info['width_inches']:.2f}\" × {st.session_state.design_info['height_inches']:.2f}\" " +
@@ -711,8 +862,19 @@ def main():
         # Step 2: Job Information & Materials
         st.header("Step 2: Job Information & Materials")
         
-        # Job Info Card
-        st.subheader("Job Information")
+        # Job Info Card with enhanced styling
+        st.markdown("""
+        <div style="
+            background-color: #ffecc6; 
+            background-image: linear-gradient(120deg, #ffecc6 0%, #fcd587 100%);
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin-bottom: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        ">
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Job Information</h3>
+        </div>
+        """, unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         
         with col1:
@@ -735,8 +897,20 @@ def main():
                                placeholder="e.g., Left Chest, Cap Front, etc.",
                                help="Where the design will be placed on the garment")
         
-        # Technical Settings Card
-        st.subheader("Machine & Technical Settings")
+        # Technical Settings Card with enhanced styling
+        st.markdown("""
+        <div style="
+            background-color: #ffecc6; 
+            background-image: linear-gradient(120deg, #ffecc6 0%, #fcd587 100%);
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin-bottom: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        ">
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Machine & Technical Settings</h3>
+        </div>
+        """
+        , unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns(3)
         
@@ -868,8 +1042,19 @@ def main():
         use_foam = st.checkbox("Use 3D Foam", value=False,
                              help="Check if using 3D foam for raised embroidery effect")
         
-        # Pricing Information Card
-        st.subheader("Pricing Information")
+        # Pricing Information Card with enhanced styling
+        st.markdown("""
+        <div style="
+            background-color: #ffecc6; 
+            background-image: linear-gradient(120deg, #ffecc6 0%, #fcd587 100%);
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin-bottom: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        ">
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Pricing Information</h3>
+        </div>
+        """, unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -893,8 +1078,34 @@ def main():
                                      step=5.0,
                                      help="One-time fee for setup, etc.")
         
-        # Calculate Button
-        calculate_pressed = st.button("Calculate Quote", type="primary")
+        # Calculate Button with enhanced styling
+        st.markdown("""
+        <style>
+        .calculate-button {
+            background: linear-gradient(90deg, #f3770c 0%, #f5993c 100%);
+            color: white;
+            font-weight: bold;
+            padding: 0.75rem 1.5rem;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 10px rgba(243, 119, 12, 0.3);
+            margin-top: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            text-align: center;
+        }
+        .calculate-button:hover {
+            box-shadow: 0 6px 15px rgba(243, 119, 12, 0.4);
+            transform: translateY(-2px);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            calculate_pressed = st.button("Calculate Quote", type="primary", key="calculate_button")
         
         if calculate_pressed and st.session_state.design_info:
             # Gather all inputs
@@ -947,21 +1158,105 @@ def main():
             }
             database.save_quote(quote_data)
             
-            # Display Results
-            st.header("Quote Results")
+            # Display Results with enhanced styling
+            st.markdown("""
+            <div style="
+                background-color: #f3770c; 
+                background-image: linear-gradient(135deg, #f3770c 0%, #fcd587 100%);
+                padding: 15px 20px;
+                border-radius: 15px;
+                margin-top: 20px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 12px rgba(243, 119, 12, 0.2);
+                text-align: center;
+            ">
+                <h2 style="margin: 0; color: white; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">Quote Results</h2>
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Summary card
+            # Custom CSS for metrics
+            st.markdown("""
+            <style>
+            .metric-card {
+                background-color: #fff9f0;
+                border-radius: 15px;
+                padding: 1rem;
+                margin-bottom: 1rem;
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+                border-left: 4px solid #f3770c;
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            .metric-card:hover {
+                transform: translateY(-3px);
+                box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+            }
+            .metric-label {
+                font-size: 0.9rem;
+                color: #8b6c55;
+                margin-bottom: 0.3rem;
+                font-weight: 500;
+            }
+            .metric-value {
+                font-size: 1.6rem;
+                color: #3a1d0d;
+                font-weight: 700;
+                margin: 0;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Summary cards with custom styling
             col1, col2 = st.columns(2)
             
             with col1:
-                st.metric("Total Job Cost", f"${cost_results['total_job_cost']:.2f}")
-                st.metric("Price Per Piece", f"${cost_results['price_per_piece']:.2f}")
-                st.metric("Production Time", f"{cost_results['production_time_hours']:.2f} hours")
+                # Total Job Cost - Highlight as most important
+                st.markdown(f"""
+                <div class="metric-card" style="border-left: 4px solid #f3770c; background-color: #fff2dd;">
+                    <div class="metric-label">Total Job Cost</div>
+                    <div class="metric-value">${cost_results['total_job_cost']:.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Price Per Piece
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Price Per Piece</div>
+                    <div class="metric-value">${cost_results['price_per_piece']:.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Production Time
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Production Time</div>
+                    <div class="metric-value">{cost_results['production_time_hours']:.2f} hours</div>
+                </div>
+                """, unsafe_allow_html=True)
             
             with col2:
-                st.metric("Material Cost", f"${cost_results['material_cost']:.2f}")
-                st.metric("Labor Cost", f"${cost_results['labor_cost']:.2f}")
-                st.metric("Profit Margin", f"${cost_results['profit_margin']:.2f} ({markup_percentage}%)")
+                # Material Cost
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Material Cost</div>
+                    <div class="metric-value">${cost_results['material_cost']:.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Labor Cost
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Labor Cost</div>
+                    <div class="metric-value">${cost_results['labor_cost']:.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Profit Margin
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Profit Margin</div>
+                    <div class="metric-value">${cost_results['profit_margin']:.2f} ({markup_percentage}%)</div>
+                </div>
+                """, unsafe_allow_html=True)
             
             # Detailed breakdown in expander
             with st.expander("Detailed Cost Breakdown"):
@@ -996,21 +1291,77 @@ def main():
             detailed_pdf = generate_detailed_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
             customer_pdf = generate_customer_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
             
-            # Download buttons
-            st.subheader("Download Quotes")
+            # Download buttons with enhanced styling
+            st.markdown("""
+            <div style="
+                background-color: #ffecc6; 
+                background-image: linear-gradient(120deg, #ffecc6 0%, #fcd587 100%);
+                padding: 10px 15px;
+                border-radius: 15px;
+                margin: 20px 0 10px 0;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            ">
+                <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Download Quotes</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Custom CSS for download buttons
+            st.markdown("""
+            <style>
+            .download-button {
+                display: block;
+                background: linear-gradient(90deg, #3a1d0d 0%, #8b6c55 100%);
+                color: white;
+                font-weight: 600;
+                text-align: center;
+                padding: 12px 20px;
+                margin: 10px 5px;
+                border-radius: 15px;
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+                text-decoration: none;
+                transition: all 0.3s ease;
+            }
+            .download-button:hover {
+                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+                transform: translateY(-2px);
+            }
+            .download-button svg {
+                vertical-align: middle;
+                margin-right: 10px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
             col1, col2 = st.columns(2)
             
+            internal_filename = f"internal_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
+            customer_filename = f"customer_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
+            
             with col1:
-                st.markdown(
-                    get_download_link(detailed_pdf, f"internal_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", "Download Internal Quote PDF"),
-                    unsafe_allow_html=True
-                )
+                st.markdown(f'''
+                <a href="data:application/pdf;base64,{base64.b64encode(detailed_pdf.getvalue()).decode()}" 
+                   download="{internal_filename}" 
+                   class="download-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                    </svg>
+                    Internal Quote PDF
+                </a>
+                ''', unsafe_allow_html=True)
             
             with col2:
-                st.markdown(
-                    get_download_link(customer_pdf, f"customer_quote_{job_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", "Download Customer Quote PDF"),
-                    unsafe_allow_html=True
-                )
+                st.markdown(f'''
+                <a href="data:application/pdf;base64,{base64.b64encode(customer_pdf.getvalue()).decode()}" 
+                   download="{customer_filename}" 
+                   class="download-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                    </svg>
+                    Customer Quote PDF
+                </a>
+                ''', unsafe_allow_html=True)
         
         elif calculate_pressed and not st.session_state.design_info:
             st.error("Please upload a DST file first to generate a quote.")

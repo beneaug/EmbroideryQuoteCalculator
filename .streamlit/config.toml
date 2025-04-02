@@ -4,8 +4,11 @@ address = "0.0.0.0"
 port = 5000
 
 [theme]
-primaryColor = "#4CAF50"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F2F6"
-textColor = "#262730"
+primaryColor = "#f3770c"
+backgroundColor = "#ffecc6"
+secondaryBackgroundColor = "#fcd587"
+textColor = "#3a1d0d"
 font = "sans serif"
+
+[global]
+showSidebarNavigation = false
