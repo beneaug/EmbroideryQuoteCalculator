@@ -832,7 +832,11 @@ def get_quickbooks_client():
         if not redirect_uri:
             # Use the Replit domain as the default redirect URI
             import os
-            replit_domain = os.environ.get("REPLIT_DOMAIN")
+            replit_domain = os.environ.get("REPLIT_DOMAINS")
+            if replit_domain:
+                # Split the comma-separated list and get the first domain
+                replit_domain = replit_domain.split(',')[0].strip()
+            print(f"Replit domain from REPLIT_DOMAINS: {replit_domain}")
             if replit_domain:
                 redirect_uri = f"https://{replit_domain}"
             else:
@@ -1332,7 +1336,11 @@ def get_quickbooks_auth_url():
     
     # Get the current Replit URL for the correct redirect URI
     import os
-    replit_domain = os.environ.get("REPLIT_DOMAIN")
+    replit_domain = os.environ.get("REPLIT_DOMAINS")
+    if replit_domain:
+        # Split the comma-separated list and get the first domain
+        replit_domain = replit_domain.split(',')[0].strip()
+    print(f"Replit domain from REPLIT_DOMAINS: {replit_domain}")
     
     # Mask sensitive values but show if they exist
     client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
@@ -2693,10 +2701,11 @@ def main():
                                     
                                     # If we have a URL to link to, add a more attractive button-style link
                                     if estimate_url:
+                                        # Create an improved QuickBooks link experience
                                         status_placeholder.markdown(f"""
                                         <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
                                             <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
-                                            <a href="{estimate_url}" target="_blank" style="
+                                            <a href="{estimate_url}" target="_blank" rel="noopener noreferrer" style="
                                                 display: inline-flex;
                                                 align-items: center;
                                                 background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
@@ -2716,7 +2725,14 @@ def main():
                                                     <line x1="10" y1="14" x2="21" y2="3"></line>
                                                 </svg>
                                             </a>
-                                            <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
+                                            <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks. The estimate will open in a new tab while your quote remains visible here.</p>
+                                            
+                                            <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; width: 100%; text-align: center;">
+                                                <p style="font-size: 0.9em; color: #555;">
+                                                    Find your estimate in QuickBooks Online under:<br/>
+                                                    <strong>Sales > Estimates</strong>
+                                                </p>
+                                            </div>
                                         </div>
                                         """, unsafe_allow_html=True)
                                 else:
@@ -2822,7 +2838,7 @@ def main():
                                         status_history_placeholder.markdown(f"""
                                         <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
                                             <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
-                                            <a href="{estimate_url}" target="_blank" style="
+                                            <a href="{estimate_url}" target="_blank" rel="noopener noreferrer" style="
                                                 display: inline-flex;
                                                 align-items: center;
                                                 background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
@@ -2842,7 +2858,14 @@ def main():
                                                     <line x1="10" y1="14" x2="21" y2="3"></line>
                                                 </svg>
                                             </a>
-                                            <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
+                                            <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks. The estimate will open in a new tab while your quote remains visible here.</p>
+                                            
+                                            <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; width: 100%; text-align: center;">
+                                                <p style="font-size: 0.9em; color: #555;">
+                                                    Find your estimate in QuickBooks Online under:<br/>
+                                                    <strong>Sales > Estimates</strong>
+                                                </p>
+                                            </div>
                                         </div>
                                         """, unsafe_allow_html=True)
                                 else:
@@ -2897,7 +2920,7 @@ def main():
                                             status_history_placeholder.markdown(f"""
                                             <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
                                                 <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
-                                                <a href="{estimate_url}" target="_blank" style="
+                                                <a href="{estimate_url}" target="_blank" rel="noopener noreferrer" style="
                                                     display: inline-flex;
                                                     align-items: center;
                                                     background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
@@ -2917,7 +2940,14 @@ def main():
                                                         <line x1="10" y1="14" x2="21" y2="3"></line>
                                                     </svg>
                                                 </a>
-                                                <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
+                                                <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks. The estimate will open in a new tab while your quote remains visible here.</p>
+                                                
+                                                <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; width: 100%; text-align: center;">
+                                                    <p style="font-size: 0.9em; color: #555;">
+                                                        Find your estimate in QuickBooks Online under:<br/>
+                                                        <strong>Sales > Estimates</strong>
+                                                    </p>
+                                                </div>
                                             </div>
                                             """, unsafe_allow_html=True)
                                     else:
@@ -3425,14 +3455,20 @@ def main():
                 
                 # Auto-detect the current Replit URL
                 import os
-                replit_domain = os.environ.get("REPLIT_DOMAIN", "")
+                replit_domain = os.environ.get("REPLIT_DOMAINS", "")
+                if replit_domain:
+                    # Split the comma-separated list and get the first domain
+                    replit_domain = replit_domain.split(',')[0].strip()
+                print(f"Replit domain from REPLIT_DOMAINS: {replit_domain}")
                 default_redirect = f"https://{replit_domain}" if replit_domain else "http://localhost:5000"
                 
                 # OAuth server URL - use internal network in Replit environment
                 oauth_server_url = "http://localhost:5001"  # Direct connection in same container
                 
                 # The redirect URI registered in the Intuit Developer Dashboard
-                callback_uri = "http://localhost:5000/callback"
+                # This MUST match exactly what's registered in your Intuit Developer Dashboard
+                callback_uri = f"https://{replit_domain}/callback" if replit_domain else "http://localhost:5000/callback"
+                print(f"Using callback URI for OAuth: {callback_uri}")
                 
                 # Show redirect URI info
                 st.markdown("""
