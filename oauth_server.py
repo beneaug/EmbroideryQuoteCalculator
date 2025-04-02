@@ -33,12 +33,30 @@ from database import update_setting, update_quickbooks_token, reset_quickbooks_a
 # State cache for security verification
 oauth_states = {}
 
+@app.route('/')
+def root():
+    """Root route that provides basic information and instructions"""
+    return jsonify({
+        'name': 'QuickBooks OAuth Server',
+        'description': 'This server handles OAuth authentication flows for QuickBooks integration',
+        'status': 'online',
+        'version': '1.1',
+        'endpoints': {
+            '/api/status': 'Check server status',
+            '/api/quickbooks/auth': 'Generate QuickBooks authorization URL',
+            '/callback': 'OAuth callback endpoint',
+            '/api/quickbooks/refresh': 'Refresh QuickBooks tokens',
+            '/api/quickbooks/reset': 'Reset QuickBooks authentication'
+        },
+        'timestamp': time.time()
+    })
+
 @app.route('/api/status')
 def api_status():
     """Check if the API is running"""
     return jsonify({
         'status': 'online',
-        'version': '1.0',
+        'version': '1.1',
         'timestamp': time.time()
     })
 
@@ -75,16 +93,16 @@ def quickbooks_auth():
     clean_old_states()
     
     # Build the OAuth URL with standard parameters
-    # Use EXACTLY the redirect_uri that's registered in the Intuit Developer Dashboard
-    # Do NOT modify the redirect_uri by appending /callback - this must match exactly what's registered
+    # The redirect_uri MUST match EXACTLY what's registered in the Intuit Developer Dashboard
+    # Do not modify the redirect_uri in any way here - it must be passed on as received
     callback_uri = redirect_uri
     
-    # Add a direct backend callback option that doesn't depend on the app frontend
-    if not callback_uri.startswith("http"):
-        # Fallback to a direct backend callback if the redirect_uri isn't a URL
-        callback_uri = "http://localhost:5001/callback"
-    
+    # Log what we're using
     print(f"Using callback URI: {callback_uri}")
+    
+    # Warning log if the callback URI doesn't include '/callback'
+    if '/callback' not in callback_uri:
+        print(f"WARNING: The redirect URI '{callback_uri}' does not contain '/callback' - ensure this EXACTLY matches what's in your Intuit Developer Dashboard")
     
     params = {
         'client_id': client_id,
@@ -132,12 +150,11 @@ def quickbooks_callback():
     # This MUST match exactly what's registered in the Intuit Developer Dashboard
     callback_uri = redirect_uri
     
-    # Add a direct backend callback option that doesn't depend on the app frontend
-    if not callback_uri.startswith("http"):
-        # Fallback to a direct backend callback if the redirect_uri isn't a URL
-        callback_uri = "http://localhost:5001/callback"
-    
     print(f"Using callback URI for token exchange: {callback_uri}")
+    
+    # Warning log if the callback URI doesn't include '/callback'
+    if '/callback' not in callback_uri:
+        print(f"WARNING: The redirect URI '{callback_uri}' does not contain '/callback' - ensure this EXACTLY matches what's in your Intuit Developer Dashboard")
     
     token_data = {
         'grant_type': 'authorization_code',
