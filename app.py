@@ -1350,12 +1350,9 @@ def get_quickbooks_auth_url():
     
     # Always update the redirect URI to match the current Replit domain
     # This prevents issues when the Replit URL changes between sessions
-    if replit_domain:
-        print(f"Setting redirect URI to current Replit domain: {default_redirect_uri}")
-        database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect_uri)
-        redirect_uri = default_redirect_uri
-    else:
-        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', default_redirect_uri)
+    print(f"Setting redirect URI to: {default_redirect_uri}")
+    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect_uri)
+    redirect_uri = default_redirect_uri
     
     environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
     
