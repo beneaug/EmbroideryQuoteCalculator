@@ -1440,8 +1440,29 @@ def main():
                     redirect_uri=redirect_uri
                 )
                 
+                # Check if we have this code in session state to prevent duplicate processing
+                if 'processed_auth_code' in st.session_state and st.session_state.processed_auth_code == auth_code:
+                    st.warning("This authorization code has already been processed. Authorization codes can only be used once.")
+                    st.info("Please try a new authorization flow if you need to reconnect.")
+                    
+                    if st.button("Start New Authorization"):
+                        # Clear processed code and query params
+                        if 'processed_auth_code' in st.session_state:
+                            del st.session_state.processed_auth_code
+                        st.query_params.clear()
+                        st.rerun()
+                    
+                    if st.button("Continue to Application", key="continue_from_duplicate"):
+                        st.query_params.clear()
+                        st.rerun()
+                    
+                    st.stop()
+                
                 # Exchange the authorization code for tokens
                 try:
+                    # Mark this code as being processed
+                    st.session_state.processed_auth_code = auth_code
+                    
                     # This will exchange the code for tokens and store them in auth_client
                     auth_client.get_bearer_token(auth_code)
                     
@@ -1463,18 +1484,29 @@ def main():
                         st.info(f"Refresh Token: {auth_client.refresh_token[:10]}...")
                         st.info(f"Token expires in: {auth_client.expires_in} seconds")
                     
+                    # Clear the processed code flag after successful processing
+                    if 'processed_auth_code' in st.session_state:
+                        del st.session_state.processed_auth_code
+                
                 except AuthClientError as auth_error:
                     # Handle specific OAuth errors
                     st.error(f"Authentication Error: {str(auth_error)}")
                     
-                    if "invalid_grant" in str(auth_error).lower():
+                    error_msg = str(auth_error).lower()
+                    if "invalid_grant" in error_msg or "authorization code" in error_msg:
                         st.warning("The authorization code has expired or already been used. QuickBooks authorization codes can only be used once and expire after 10 minutes.")
+                        
+                        # Clear session state for this code since it's invalid
+                        if 'processed_auth_code' in st.session_state:
+                            del st.session_state.processed_auth_code
                     
-                    # Get a new auth URL for retry
+                    # Generate a new auth URL for retry
                     auth_url = get_quickbooks_auth_url()
                     if auth_url:
                         st.info("Please try connecting again:")
-                        if st.button("Reconnect to QuickBooks"):
+                        if st.button("Reconnect to QuickBooks", key="reconnect_invalid_code"):
+                            # Clear URL params before redirecting
+                            st.query_params.clear()
                             st.markdown(f"""
                             <script>
                                 window.top.location.href = '{auth_url}';
@@ -1485,9 +1517,16 @@ def main():
                 if 'qb_auth_state' in st.session_state:
                     del st.session_state['qb_auth_state']
                 
-                # Continue button
-                if st.button("Continue to Application"):
+                # Continue button with a more descriptive label
+                if st.button("Continue to Application", key="continue_from_auth"):
+                    # Clear any query parameters and auth state
                     st.query_params.clear()
+                    
+                    # Clear processed auth code flag for a clean state
+                    if 'processed_auth_code' in st.session_state:
+                        del st.session_state.processed_auth_code
+                    
+                    st.success("Redirecting to the application...")
                     st.rerun()
                 
                 # Stop here and don't show the rest of the app during OAuth processing
@@ -1513,8 +1552,15 @@ def main():
                         """, unsafe_allow_html=True)
                 
                 # Continue button
-                if st.button("Continue to Application"):
+                if st.button("Continue to Application", key="continue_from_error"):
+                    # Clear query parameters and session state
                     st.query_params.clear()
+                    
+                    # Clear processed auth code flag
+                    if 'processed_auth_code' in st.session_state:
+                        del st.session_state.processed_auth_code
+                    
+                    st.success("Redirecting to the application...")
                     st.rerun()
                 
                 st.stop()
