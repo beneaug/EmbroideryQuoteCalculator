@@ -50,6 +50,9 @@ DEFAULT_PRODUCTIVITY_RATE = machine_settings.get("DEFAULT_PRODUCTIVITY_RATE", {}
 DEFAULT_COMPLEX_PRODUCTIVITY_RATE = machine_settings.get("DEFAULT_COMPLEX_PRODUCTIVITY_RATE", {}).get("value", 0.8)
 DEFAULT_COLOREEL_PRODUCTIVITY_RATE = machine_settings.get("DEFAULT_COLOREEL_PRODUCTIVITY_RATE", {}).get("value", 0.75)
 DEFAULT_DIGITIZING_FEE = machine_settings.get("DEFAULT_DIGITIZING_FEE", {}).get("value", 25.0)
+# Buffer time settings (new)
+DEFAULT_BUFFER_MINUTES = machine_settings.get("DEFAULT_BUFFER_MINUTES", {}).get("value", 4.0)  # minutes
+DEFAULT_BUFFER_PERCENTAGE = machine_settings.get("DEFAULT_BUFFER_PERCENTAGE", {}).get("value", 5.0)  # % of cycle time
 
 HOURLY_LABOR_RATE = labor_settings.get("HOURLY_LABOR_RATE", {}).get("value", 25)
 
@@ -324,14 +327,27 @@ def calculate_costs(design_info, job_inputs):
     # Hooping time (in minutes)
     hooping_time_minutes = HOOPING_TIME_DEFAULT / 60  # Convert seconds to minutes
     
-    # Total production time per piece
-    production_time_per_piece = stitching_time_minutes + hooping_time_minutes
+    # Total production time per piece (stitching + hooping)
+    piece_production_time = stitching_time_minutes + hooping_time_minutes
     
     # Total production time for the batch, accounting for multiple heads
     pieces_per_run = min(active_heads, quantity)  # Can't use more heads than pieces
     runs_needed = math.ceil(quantity / pieces_per_run)
     
-    total_production_time_minutes = runs_needed * production_time_per_piece
+    # Calculate buffer time between cycles
+    buffer_minutes = job_inputs.get("buffer_minutes", float(DEFAULT_BUFFER_MINUTES))
+    buffer_percentage = job_inputs.get("buffer_percentage", float(DEFAULT_BUFFER_PERCENTAGE))
+    
+    # Buffer time formula: fixed time + percentage of cycle run time
+    cycle_run_time = piece_production_time  # Time for a single cycle
+    buffer_time_per_run = buffer_minutes + (cycle_run_time * buffer_percentage / 100)
+    
+    # Add buffer time to production time, but only apply it to runs_needed - 1 (no buffer after last run)
+    buffer_time_total = buffer_time_per_run * max(0, runs_needed - 1)
+    
+    # Total production time including buffer time
+    production_time_per_piece = piece_production_time  # Base time per piece (without buffer)
+    total_production_time_minutes = (runs_needed * piece_production_time) + buffer_time_total
     total_production_time_hours = total_production_time_minutes / 60
     
     # 6. Labor cost
@@ -381,7 +397,11 @@ def calculate_costs(design_info, job_inputs):
         "spools_required": spools_required,
         "bobbins_required": bobbins_required,
         "productivity_rate": productivity_rate,
-        "worker_info": worker_info
+        "worker_info": worker_info,
+        "buffer_time_minutes": buffer_time_total,
+        "buffer_minutes_per_run": buffer_minutes,
+        "buffer_percentage": buffer_percentage,
+        "piece_production_time": piece_production_time
     }
 
 def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
@@ -482,7 +502,9 @@ def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
         ["Stabilizer Type", job_inputs["stabilizer_type"]],
         ["Using 3D Foam", "Yes" if job_inputs["use_foam"] else "No"],
         ["Using Coloreel", "Yes" if job_inputs["coloreel_enabled"] else "No"],
-        ["Production Time", f"{cost_results['production_time_hours']:.2f} hours ({cost_results['production_time_minutes']:.1f} min)"],
+        ["Stitch Time", f"{cost_results['piece_production_time']:.1f} minutes per piece"],
+        ["Buffer Time", f"{cost_results['buffer_time_minutes']:.1f} min ({cost_results['buffer_minutes_per_run']:.1f} min + {cost_results['buffer_percentage']:.1f}% of cycle)"],
+        ["Total Production Time", f"{cost_results['production_time_hours']:.2f} hours ({cost_results['production_time_minutes']:.1f} min)"],
         ["Runs Needed", str(cost_results['runs_needed'])],
     ]
     
@@ -1183,6 +1205,34 @@ def main():
                 else:
                     st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
             
+            # Buffer time settings
+            st.markdown("#### Buffer Time Settings")
+            st.caption("Time between production cycles for product removal and setup.")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                buffer_minutes = st.number_input(
+                    "Fixed Buffer Time (minutes)",
+                    min_value=0.0,
+                    max_value=15.0,
+                    value=float(DEFAULT_BUFFER_MINUTES),
+                    format="%.1f",
+                    step=0.5,
+                    help="Fixed time in minutes added between each production cycle"
+                )
+            
+            with col2:
+                buffer_percentage = st.number_input(
+                    "Cycle Time Percentage (%)",
+                    min_value=0.0,
+                    max_value=25.0,
+                    value=float(DEFAULT_BUFFER_PERCENTAGE),
+                    format="%.1f",
+                    step=1.0,
+                    help="Additional buffer time calculated as a percentage of the cycle time"
+                )
+            
             # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
             if coloreel_enabled and active_heads > coloreel_max_heads:
@@ -1395,7 +1445,10 @@ def main():
                 "setup_fee": setup_fee,
                 "digitizing_fee": digitizing_fee if 'digitizing_fee' in locals() else 0.0,
                 "custom_productivity_rate": custom_productivity_rate if 'custom_productivity_rate' in locals() and custom_productivity_rate is not None else None,
-                "selected_workers": selected_workers if 'selected_workers' in locals() else []
+                "selected_workers": selected_workers if 'selected_workers' in locals() else [],
+                # Add buffer time settings
+                "buffer_minutes": buffer_minutes if 'buffer_minutes' in locals() else float(DEFAULT_BUFFER_MINUTES),
+                "buffer_percentage": buffer_percentage if 'buffer_percentage' in locals() else float(DEFAULT_BUFFER_PERCENTAGE)
             }
             
             # Calculate all costs
@@ -1546,7 +1599,7 @@ def main():
                         st.metric("Foam Cost", f"${cost_results['foam_cost']:.2f}")
                 
                 st.subheader("Production Details")
-                production_col1, production_col2 = st.columns(2)
+                production_col1, production_col2, production_col3 = st.columns(3)
                 
                 with production_col1:
                     st.metric("Runs Needed", str(cost_results['runs_needed']))
@@ -1559,6 +1612,12 @@ def main():
                     # Show digitizing fee if applicable
                     if job_inputs.get("complex_production", False) and cost_results.get("digitizing_fee", 0) > 0:
                         st.metric("Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}")
+                
+                with production_col3:
+                    # Show buffer time details
+                    st.metric("Production Time", f"{cost_results['piece_production_time']:.1f} min per piece")
+                    st.metric("Buffer Time", f"{cost_results['buffer_time_minutes']:.1f} min ({cost_results['buffer_minutes_per_run']:.1f}min + {cost_results['buffer_percentage']:.1f}%)")
+                    st.metric("Total Production Time", f"{cost_results['production_time_hours']:.2f} hours")
                 
                 # Display labor workers if any are selected
                 if "worker_info" in cost_results and cost_results["worker_info"]:
@@ -1873,6 +1932,32 @@ def main():
                     step=5.0,
                     help="Default fee for digitizing complex designs"
                 )
+
+            st.subheader("Buffer Time Settings")
+            st.info("Buffer time is added between production cycles for product removal and setup.")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_buffer_minutes = st.number_input(
+                    "Fixed Buffer Time (minutes)",
+                    min_value=0.0,
+                    max_value=20.0,
+                    value=float(DEFAULT_BUFFER_MINUTES),
+                    format="%.1f",
+                    step=0.5,
+                    help="Fixed time in minutes added between each production cycle for product removal and setup"
+                )
+            
+            with col2:
+                new_buffer_percentage = st.number_input(
+                    "Percentage of Cycle Time (%)",
+                    min_value=0.0,
+                    max_value=50.0,
+                    value=float(DEFAULT_BUFFER_PERCENTAGE),
+                    format="%.1f",
+                    step=1.0,
+                    help="Additional buffer time calculated as a percentage of the production cycle time"
+                )
             
             if st.button("Update Machine Settings"):
                 # Update database
@@ -1885,6 +1970,9 @@ def main():
                 database.update_setting("machine_settings", "DEFAULT_COMPLEX_PRODUCTIVITY_RATE", new_complex_productivity)
                 database.update_setting("machine_settings", "DEFAULT_COLOREEL_PRODUCTIVITY_RATE", new_coloreel_productivity)
                 database.update_setting("machine_settings", "DEFAULT_DIGITIZING_FEE", new_digitizing_fee)
+                # Save buffer time settings
+                database.update_setting("machine_settings", "DEFAULT_BUFFER_MINUTES", new_buffer_minutes)
+                database.update_setting("machine_settings", "DEFAULT_BUFFER_PERCENTAGE", new_buffer_percentage)
                 st.success("Machine settings updated successfully!")
                 machine_settings_updated = True
         
