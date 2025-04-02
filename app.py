@@ -923,6 +923,11 @@ def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None
 
 # Main Application
 def main():
+    # Initialize settings update flags
+    material_settings_updated = False
+    machine_settings_updated = False
+    labor_settings_updated = False
+    
     # Custom CSS for iOS/iCloud-inspired design
     st.markdown("""
     <style>
@@ -1509,11 +1514,11 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Display active workers with checkboxes
+                # Display active workers with checkboxes - without showing hourly rates
                 selected_workers = []
                 for worker in active_workers:
                     is_selected = st.checkbox(
-                        f"{worker['name']} (${worker['hourly_rate']:.2f}/hr)", 
+                        f"{worker['name']}", 
                         value=True,
                         key=f"worker_select_{worker['id']}"
                     )
@@ -1526,7 +1531,7 @@ def main():
                         inactive_workers = [w for w in workers if not w['is_active']]
                         for worker in inactive_workers:
                             is_selected = st.checkbox(
-                                f"{worker['name']} (${worker['hourly_rate']:.2f}/hr)", 
+                                f"{worker['name']}", 
                                 value=False,
                                 key=f"worker_select_{worker['id']}"
                             )
@@ -1768,10 +1773,9 @@ def main():
                 if "worker_info" in cost_results and cost_results["worker_info"]:
                     st.subheader("Labor Information")
                     
-                    # Create a simple table to display worker information
+                    # Create a simple table to display worker information without showing rates
                     worker_data = {
-                        "Worker": [w["name"] for w in cost_results["worker_info"]],
-                        "Hourly Rate": [f"${w['rate']:.2f}" for w in cost_results["worker_info"]]
+                        "Workers Assigned": [w["name"] for w in cost_results["worker_info"]]
                     }
                     
                     worker_df = pd.DataFrame(worker_data)
@@ -2560,10 +2564,9 @@ def main():
                 
                 st.dataframe(df, use_container_width=True)
         
-        # Reset session when settings are updated
-        if material_settings_updated or machine_settings_updated or labor_settings_updated:
-            if st.button("Reload Application with New Settings"):
-                st.rerun()
+        # Instead of using flags, just show the reload button
+        if st.button("Reload Application Settings"):
+            st.rerun()
 
 if __name__ == "__main__":
     main()
