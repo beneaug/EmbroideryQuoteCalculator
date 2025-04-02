@@ -1088,7 +1088,7 @@ def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None
 # Main Application
 def main():
     # Check for query parameters that could contain OAuth callback data
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     
     # Handle QuickBooks OAuth callback if present
     if 'code' in query_params and 'realmId' in query_params:
@@ -1166,7 +1166,7 @@ def main():
                 # Add a button to continue to the main app
                 if st.button("Continue to Application"):
                     # Clear the query parameters and reload
-                    st.experimental_set_query_params()
+                    st.query_params.clear()
                     st.rerun()
                 
                 # Skip rendering the rest of the app while processing OAuth
@@ -1179,7 +1179,7 @@ def main():
                 # Add a button to continue to the main app
                 if st.button("Continue to Application"):
                     # Clear the query parameters and reload
-                    st.experimental_set_query_params()
+                    st.query_params.clear()
                     st.rerun()
                 
                 # Skip rendering the rest of the app while processing OAuth
@@ -2129,12 +2129,37 @@ def main():
                 is_authenticated, auth_message = database.get_quickbooks_auth_status()
                 
                 if is_authenticated:
-                    qb_export = st.checkbox("Export to QuickBooks", 
-                                        help="Create an invoice in QuickBooks based on this quote")
+                    # Create a button styled like the download buttons
+                    st.markdown("""
+                    <style>
+                    .quickbooks-button {
+                        background-color: #f3770c;
+                        background-image: linear-gradient(160deg, #f3770c 0%, #f59d0e 100%);
+                        border-radius: 10px !important;
+                        color: white !important;
+                        font-weight: bold !important;
+                        padding: 0.5rem 1rem !important;
+                        border: none !important;
+                        text-align: center !important;
+                        font-family: 'Helvetica Neue', sans-serif !important;
+                        font-size: 16px !important;
+                        margin-top: 10px !important;
+                        width: 100% !important;
+                        cursor: pointer !important;
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                    }
+                    .quickbooks-button svg {
+                        margin-right: 10px !important;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
                     
-                    if qb_export and st.button("Export Now", 
-                                            type="primary", 
-                                            key="export_to_qb_button"):
+                    if st.button("🏛️ Export to QuickBooks", 
+                              help="Create an invoice in QuickBooks based on this quote",
+                              key="export_to_qb_button",
+                              use_container_width=True):
                         with st.spinner("Exporting to QuickBooks..."):
                             success, message = export_to_quickbooks(
                                 st.session_state.design_info, 
@@ -2202,10 +2227,11 @@ def main():
                         is_authenticated, auth_message = database.get_quickbooks_auth_status()
                         
                         if is_authenticated:
-                            qb_export = st.checkbox(f"Export to QuickBooks", key=f"qb_export_{i}",
-                                               help="Create an invoice in QuickBooks based on this quote")
-                            
-                            if qb_export and st.button("Export Now", type="primary", key=f"export_to_qb_button_{i}"):
+                            # Export to QuickBooks button for history
+                            if st.button("🏛️ Export to QuickBooks", 
+                                      help="Create an invoice in QuickBooks based on this quote",
+                                      key=f"export_to_qb_button_{i}",
+                                      use_container_width=True):
                                 with st.spinner("Exporting to QuickBooks..."):
                                     success, message = export_to_quickbooks(
                                         entry['design_info'], 
