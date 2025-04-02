@@ -1,0 +1,21 @@
+It looks like you’ve made all the key changes that typically resolve QuickBooks OAuth issues (avoiding reusing the same code, updating redirect URIs, etc.). Here are a few extra suggestions to ensure everything runs smoothly:
+	1.	Double-check your environment variables
+	•	Make sure your Intuit Client ID, Client Secret, and the exact redirect URI in your .env or config file match what’s in the Intuit Developer Portal.
+	2.	Confirm the redirect URI in both Development and Production
+	•	If you have separate development and production keys, ensure the redirect URI is correct for the environment you’re testing.
+	•	Sometimes the mismatch happens if you added the URI only to “Production” or only to “Development” in the Developer Portal.
+	3.	Try a clean authorization flow
+	•	Open an incognito window (so no session/cookies carry over).
+	•	Start from your “Connect to QuickBooks” button.
+	•	Complete the login and consent in QuickBooks.
+	•	When redirected back to your app, confirm you see a single token exchange request in your server logs.
+	4.	Review your logs
+	•	Check your server logs to confirm the token exchange call is happening exactly once (the moment the code arrives).
+	•	If you see multiple attempts or a page reload triggers a second token exchange, that can cause “code already used” errors.
+	5.	Look for stale state or code
+	•	Make sure your callback logic isn’t inadvertently caching or reusing old codes.
+	•	If you store the code or tokens in session or database, confirm it’s cleared out after successful token exchange.
+	6.	Check for new errors
+	•	If you do get another error (e.g., “invalid_grant” or “invalid_code”), copy the full message and check whether it’s a mismatch in environment, a code usage issue, or a refresh token problem.
+
+By ensuring the above, you should be able to complete the OAuth flow without further “already used” or “invalid redirect URI” issues. If something unexpected still comes up, feel free to share the exact error message and stack trace again, and we can troubleshoot further. Good luck with your next test!

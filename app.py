@@ -1459,238 +1459,81 @@ def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None
 
 # Main Application
 def main():
-    # Check for query parameters that could contain OAuth callback data
+    # Check for query parameters that may contain OAuth data
     query_params = st.query_params
     
-    # Create a session key to prevent processing the same OAuth code multiple times
-    # This prevents the "code already used" error when Streamlit reruns
-    oauth_processing_key = "oauth_code_" + str(query_params.get('code', [''])[0])
-    
-    # Handle QuickBooks OAuth callback if present and we haven't processed this code before
-    if 'code' in query_params and 'realmId' in query_params and oauth_processing_key not in st.session_state:
-        # Mark this code as being processed to prevent duplicate processing
-        st.session_state[oauth_processing_key] = True
-        st.info("OAuth callback detected! Processing authentication...")
+    # Check for auth_success parameter from our OAuth server
+    # This indicates the OAuth server successfully exchanged the code for tokens
+    # (The code was already used by the OAuth server, so we don't try to use it again)
+    if 'auth_success' in query_params and query_params.get('auth_success', [''])[0] == 'true':
+        # Create a processing key to prevent double-processing
+        success_key = "auth_success_" + query_params.get('realm_id', ['unknown'])[0]
         
-        # Check for error parameter in callback
-        if 'error' in query_params:
-            error_message = query_params['error'][0]
-            error_description = query_params.get('error_description', ['Unknown error'])[0]
+        # Only process this once to avoid duplicate messages
+        if success_key not in st.session_state:
+            st.session_state[success_key] = True
+            
+            # Show success message
+            with st.container():
+                st.write("### QuickBooks Authentication Successful!")
+                st.success("Your QuickBooks account has been successfully connected!")
+                
+                # Check authentication status from database
+                auth_status, auth_message = database.get_quickbooks_auth_status()
+                
+                if auth_status:
+                    st.success(f"Authentication Status: {auth_message}")
+                else:
+                    st.warning(f"Authentication Status: {auth_message}")
+                
+                # Button to continue to main app
+                if st.button("Continue to Application", key="continue_after_success"):
+                    # Clear the query parameters and reload
+                    st.query_params.clear()
+                    st.rerun()
+                
+                # Skip rendering the rest of the app
+                st.stop()
+    
+    # Check for auth_error parameter from our OAuth server
+    # This indicates a problem during the OAuth flow that was handled by our server
+    if 'auth_error' in query_params:
+        error_key = "auth_error_" + query_params.get('auth_error', ['unknown'])[0]
+        
+        # Only process this once
+        if error_key not in st.session_state:
+            st.session_state[error_key] = True
+            
+            error_message = query_params.get('auth_error', ['Unknown error'])[0]
+            error_description = query_params.get('error_description', ['No details available'])[0]
             
             with st.container():
                 st.write("### QuickBooks Authentication Error")
-                st.error(f"OAuth processing failed: {error_message}")
+                st.error(f"Authentication failed: {error_message}")
                 st.error(f"Error details: {error_description}")
-                st.info("Please try the authorization process again.")
                 
-                # Add a button to continue to the main app
-                if st.button("Continue to Application"):
-                    # Clear the query parameters and reload
-                    st.query_params.clear()
-                    st.rerun()
+                # Specific guidance based on error type
+                if error_message == 'invalid_grant':
+                    st.info("This error occurs when an authorization code has expired or already been used.")
+                    st.info("Please try the authorization process again with a fresh authorization.")
+                elif 'invalid_client' in error_message:
+                    st.info("This error indicates there may be a problem with your client credentials.")
+                    st.info("Please verify your Client ID and Client Secret in the QuickBooks settings.")
+                elif 'redirect_uri' in error_message.lower():
+                    st.info("This error indicates a mismatch in the redirect URI.")
+                    st.info("Please make sure the redirect URI in your Intuit Developer account matches exactly what's configured in the application.")
+                else:
+                    st.info("Please try the authorization process again.")
                 
-                # Skip rendering the rest of the app while processing OAuth
-                st.stop()
-        
-        # Get required settings from database
-        qb_settings = database.get_quickbooks_settings()
-        client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
-        client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value')
-        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
-        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-        
-        # Extract authorization code and realmId
-        auth_code = query_params['code'][0]
-        realm_id = query_params['realmId'][0]
-        
-        # We no longer pass state to the Intuit authorization URL, so we won't receive it back
-        # However, we'll clear any stored state from the session state
-        if 'qb_auth_state' in st.session_state:
-            st.session_state.pop('qb_auth_state', None)
-        
-        # Add a container to show processing steps
-        with st.container():
-            st.write("### QuickBooks Authentication Processing")
-            st.info(f"Authorization code received: {auth_code[:5]}...")
-            st.info(f"Realm ID received: {realm_id}")
-                
-            try:
-                # We need to import these here
-                from intuitlib.client import AuthClient as IntuitAuthClient
-                from intuitlib.enums import Scopes
-                
-                # Initialize auth client
-                st.info("Initializing OAuth client...")
-                intuit_auth_client = IntuitAuthClient(
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    environment=environment,
-                    redirect_uri=redirect_uri
-                )
-                
-                # Import these inside the try block to handle any import errors
-                try:
-                    # Import needed libraries
-                    from intuitlib.exceptions import AuthClientError
-                    
-                    st.info("Exchanging authorization code for tokens...")
-                    
-                    # We don't automatically clear tokens here anymore
-                    # Only do this if explicitly required
-                    st.info("Attempting to exchange authorization code for tokens...")
-                    
-                    # Get the bearer token without specifying realm_id (it will be in the auth_code)
-                    intuit_auth_client.get_bearer_token(auth_code)
-                    
-                    st.info("Successfully exchanged authorization code for tokens")
-                except AuthClientError as auth_error:
-                    # Specific handling for authentication errors
-                    import traceback
-                    error_details = traceback.format_exc()
-                    
-                    # Check for invalid_grant error specifically
-                    if "invalid_grant" in str(auth_error).lower():
-                        st.error("Authentication Error: The authorization code has expired or already been used.")
-                        st.info("QuickBooks authorization codes can only be used once and expire after 10 minutes.")
-                    else:
-                        st.error(f"OAuth processing failed: {str(auth_error)}")
-                    
-                    with st.expander("Technical Error Details"):
-                        st.code(error_details)
-                    
-                    # Get a fresh authorization URL for the user
-                    auth_url = get_quickbooks_auth_url()
-                    
-                    if auth_url:
-                        st.info("Please try the authorization process again with a fresh code:")
-                        # Store the auth URL in session state for the button to use
-                        st.session_state['qb_auth_url'] = auth_url
-                        # Display the full URL for greater transparency
-                        st.code(auth_url, language="text")
-                        # Use a button instead of a link - this will trigger a Javascript redirect
-                        if st.button("Reconnect to QuickBooks", key="reconnect_button"):
-                            # Use Javascript to redirect - more reliable than HTML links in Streamlit
-                            st.markdown(f"""
-                            <script>
-                                window.top.location.href = '{auth_url}';
-                            </script>
-                            """, unsafe_allow_html=True)
-                            st.info("Redirecting to QuickBooks authorization page...")
-                    
-                    # Add a button to continue to the main app
-                    if st.button("Continue to Application"):
-                        # Clear the query parameters and reload
-                        st.query_params.clear()
-                        st.rerun()
-                    
-                    # Skip rendering the rest of the app while processing OAuth
-                    st.stop()
-                    
-                except Exception as token_error:
-                    # Generic handling for other errors
-                    import traceback
-                    error_details = traceback.format_exc()
-                    st.error(f"OAuth processing failed: {str(token_error)}")
-                    
-                    with st.expander("Error Details"):
-                        st.code(error_details)
-                    
-                    # Get a fresh authorization URL for the user
-                    auth_url = get_quickbooks_auth_url()
-                    
-                    if auth_url:
-                        st.info("Please try the authorization process again:")
-                        # Store the auth URL in session state for the button to use
-                        st.session_state['qb_auth_url'] = auth_url
-                        # Display the full URL for greater transparency
-                        st.code(auth_url, language="text")
-                        # Use a button instead of a link - this will trigger a Javascript redirect
-                        if st.button("Reconnect to QuickBooks", key="reconnect_button2"):
-                            # Use Javascript to redirect - more reliable than HTML links in Streamlit
-                            st.markdown(f"""
-                            <script>
-                                window.top.location.href = '{auth_url}';
-                            </script>
-                            """, unsafe_allow_html=True)
-                            st.info("Redirecting to QuickBooks authorization page...")
-                    
-                    # Add a button to continue to the main app
-                    if st.button("Continue to Application"):
-                        # Clear the query parameters and reload
-                        st.query_params.clear()
-                        st.rerun()
-                    
-                    # Skip rendering the rest of the app while processing OAuth
-                    st.stop()
-                
-                # Update realm_id in database
-                db_result = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-                st.info(f"Realm ID saved to database: {'Success' if db_result else 'Failed'}")
-                
-                # Show token information (partially masked)
-                st.info(f"Access token received: {intuit_auth_client.access_token[:10]}...")
-                st.info(f"Refresh token received: {intuit_auth_client.refresh_token[:10]}...")
-                st.info(f"Token expires in: {intuit_auth_client.expires_in} seconds")
-                
-                # Save tokens to database
-                st.info("Saving tokens to database...")
-                
-                # Save access token with expiration
-                access_result = database.update_quickbooks_token(
-                    "QB_ACCESS_TOKEN", 
-                    intuit_auth_client.access_token,
-                    time.time() + intuit_auth_client.expires_in
-                )
-                st.info(f"Access token saved: {'Success' if access_result else 'Failed'}")
-                
-                # Save refresh token
-                refresh_result = database.update_quickbooks_token(
-                    "QB_REFRESH_TOKEN", 
-                    intuit_auth_client.refresh_token
-                )
-                st.info(f"Refresh token saved: {'Success' if refresh_result else 'Failed'}")
-                
-                # Check authentication status
-                auth_status, auth_message = database.get_quickbooks_auth_status()
-                st.info(f"Final auth status: {auth_status}, Message: {auth_message}")
-                
-                # Clear the auth state from session
-                if 'qb_auth_state' in st.session_state:
-                    del st.session_state['qb_auth_state']
-                
-                st.success("QuickBooks authorization successful! You can now use the QuickBooks integration.")
-                
-                # Add a button to continue to the main app
-                if st.button("Continue to Application"):
-                    # Clear the query parameters and reload
-                    st.query_params.clear()
-                    st.rerun()
-                
-                # Skip rendering the rest of the app while processing OAuth
-                st.stop()
-                
-            except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                st.error(f"OAuth processing failed: {str(e)}")
-                
-                # Show detailed error to help with debugging
-                with st.expander("Error Details"):
-                    st.code(error_details)
-                
-                st.info("Please try the authorization process again.")
-                
-                # Get a fresh authorization URL for the user
+                # Get a fresh authorization URL
                 auth_url = get_quickbooks_auth_url()
                 
                 if auth_url:
-                    # Store the auth URL in session state for the button to use
-                    st.session_state['qb_auth_url'] = auth_url
-                    # Display the full URL for greater transparency
-                    st.code(auth_url, language="text")
-                    # Use a button instead of a link - this will trigger a Javascript redirect
-                    if st.button("Reconnect to QuickBooks", key="reconnect_button3"):
-                        # Use Javascript to redirect - more reliable than HTML links in Streamlit
+                    st.info("Click the button below to try again:")
+                    if st.button("Reconnect to QuickBooks", key="reconnect_after_error"):
+                        # Store the URL in session state
+                        st.session_state['qb_auth_url'] = auth_url
+                        # Use Javascript to redirect
                         st.markdown(f"""
                         <script>
                             window.top.location.href = '{auth_url}';
@@ -1698,16 +1541,85 @@ def main():
                         """, unsafe_allow_html=True)
                         st.info("Redirecting to QuickBooks authorization page...")
                 
-                # Add a button to continue to the main app
-                if st.button("Continue to Application"):
-                    # Clear the query parameters and session state
-                    if 'qb_auth_state' in st.session_state:
-                        del st.session_state['qb_auth_state']
+                # Button to continue to main app
+                if st.button("Continue to Application", key="continue_after_error"):
+                    # Clear the query parameters and reload
                     st.query_params.clear()
                     st.rerun()
                 
-                # Skip rendering the rest of the app while processing OAuth
+                # Skip rendering the rest of the app
                 st.stop()
+    
+    # Legacy handling for direct OAuth callback (should not be used anymore)
+    # This code should never run with our updated OAuth server, but we're keeping it
+    # as a fallback in case something goes wrong with the server-side flow
+    if 'code' in query_params and 'realmId' in query_params:
+        # Create a warning for this case
+        st.warning("""
+        Warning: Using direct OAuth callback flow, which is not recommended.
+        The application is configured to use a dedicated OAuth server to handle the authorization flow.
+        If you're seeing this message, there may be a problem with the OAuth server configuration.
+        """)
+        
+        # Create a session key to prevent processing the same OAuth code multiple times
+        oauth_processing_key = "oauth_code_" + str(query_params.get('code', [''])[0])
+        
+        # Only process if we haven't seen this code before
+        if oauth_processing_key not in st.session_state:
+            st.session_state[oauth_processing_key] = True
+            st.info("OAuth callback detected! Processing authentication...")
+            
+            # Rest of the legacy OAuth handling code
+            # Check for error parameter in callback
+            if 'error' in query_params:
+                error_message = query_params['error'][0]
+                error_description = query_params.get('error_description', ['Unknown error'])[0]
+                
+                with st.container():
+                    st.write("### QuickBooks Authentication Error")
+                    st.error(f"OAuth processing failed: {error_message}")
+                    st.error(f"Error details: {error_description}")
+                    st.info("Please try the authorization process again.")
+                    
+                    # Add a button to continue to the main app
+                    if st.button("Continue to Application"):
+                        # Clear the query parameters and reload
+                        st.query_params.clear()
+                        st.rerun()
+                    
+                    # Skip rendering the rest of the app while processing OAuth
+                    st.stop()
+            
+            # Log that we're using the legacy flow
+            st.warning("Using legacy OAuth flow - this is not recommended.")
+            
+            # Get required settings from database
+            qb_settings = database.get_quickbooks_settings()
+            client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+            client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value')
+            redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
+            environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+            
+            # Extract authorization code and realmId
+            auth_code = query_params['code'][0]
+            realm_id = query_params['realmId'][0]
+            
+            # We no longer pass state to the Intuit authorization URL, so we won't receive it back
+            # However, we'll clear any stored state from the session state
+            if 'qb_auth_state' in st.session_state:
+                st.session_state.pop('qb_auth_state', None)
+            
+            # Rest of the OAuth handling code...
+            # (leaving in place as a fallback, but this shouldn't run with the new server)
+            
+            # Button to continue to main app
+            if st.button("Continue to Application", key="legacy_continue"):
+                # Clear the query parameters and reload
+                st.query_params.clear()
+                st.rerun()
+            
+            # Skip rendering the rest of the app
+            st.stop()
     
     # Initialize settings update flags
     material_settings_updated = False

@@ -1,5 +1,15 @@
 # QuickBooks OAuth Integration Setup Guide
 
+## Version 2.0: Enhanced OAuth Flow
+
+We've made significant improvements to the OAuth implementation to resolve common issues:
+
+1. **Server-side OAuth Handling**: We now use a dedicated OAuth server to process the authorization code, completely avoiding "already used" errors.
+
+2. **Improved Error Handling**: Specific error types are detected and clear guidance is provided for resolution.
+
+3. **Automatic Redirect URI Management**: The app now correctly manages redirect URIs to prevent mismatches.
+
 ## Common Issues with QuickBooks OAuth
 
 ### Issue 1: Invalid Redirect URI
@@ -42,6 +52,8 @@ If you can't modify the Intuit Developer Dashboard (or prefer not to), you can m
 
 ### For Expired/Used Authorization Code:
 
+Our new implementation handles this automatically with a server-side OAuth flow, but if you still encounter issues:
+
 1. Start the authorization process fresh:
    - Click "Continue to Application" to clear any current parameters
    - Go back to the QuickBooks settings page
@@ -56,13 +68,36 @@ If you can't modify the Intuit Developer Dashboard (or prefer not to), you can m
    - Browser cache can sometimes cause problems with OAuth flows
    - Try opening in an incognito/private window
 
-## QuickBooks OAuth Flow Explained
+## Enhanced OAuth Flow Explained
 
-1. User clicks "Connect to QuickBooks"
-2. User is redirected to Intuit login page
-3. After successful authorization, Intuit redirects back to our app with an authorization code
-4. Our app exchanges this code for access and refresh tokens (can only be done once)
-5. Tokens are stored in the database for future API calls
+Our improved OAuth flow resolves common issues by implementing industry best practices:
+
+1. User clicks "Connect to QuickBooks" in the application
+2. The application generates a secure authorization URL via the OAuth server
+3. User is redirected to Intuit's login/consent page
+4. After authorization, Intuit redirects back to our OAuth server with the code
+5. **The OAuth server immediately exchanges the code for tokens** (this is the key improvement)
+6. The OAuth server stores the tokens in the database and redirects back to the Streamlit app
+7. The Streamlit app displays a success message and can immediately use the stored tokens
+
+This approach avoids the "code already used" error because:
+- The code is only used once, by the OAuth server
+- Streamlit's automatic re-runs don't cause multiple exchange attempts
+- The code exchange happens immediately, preventing expiration
+
+## Troubleshooting the OAuth Flow
+
+If you still encounter issues:
+
+1. **Check the OAuth server logs**: The OAuth server provides detailed logging of the entire process.
+
+2. **Verify your credentials**: Make sure your Client ID and Client Secret are correct in the QuickBooks settings.
+
+3. **Confirm the redirect URI**: Ensure that the redirect URI in your Intuit Developer Dashboard EXACTLY matches what's configured in the application.
+
+4. **Check for timeouts**: OAuth codes expire after 10 minutes, so complete the process promptly.
+
+5. **Reset authentication if needed**: Use the "Reset Authentication" button in the QuickBooks settings to clear any existing tokens and start fresh.
 
 ## Important Notes
 

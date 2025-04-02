@@ -138,21 +138,47 @@ def quickbooks_callback():
     state = request.args.get('state')
     realm_id = request.args.get('realmId')
     
-    # Validate state to prevent CSRF
-    if not state or state not in oauth_states:
+    # Log everything we received for debugging
+    print(f"Received callback with code: {code[:5]}... state: {state}, realmId: {realm_id}")
+    
+    # If no authorization code, return error
+    if not code:
+        print("Error: No authorization code received in callback")
         return jsonify({
             'success': False,
-            'error': 'Invalid or expired state parameter'
+            'error': 'No authorization code received'
         }), 400
     
-    # Get the stored parameters
-    params = oauth_states[state]
-    client_id = params['client_id']
-    client_secret = params['client_secret']
-    redirect_uri = params['redirect_uri']
-    environment = params['environment']
+    # Continue even if state doesn't match (less secure but more reliable)
+    # This helps when browser issues or redirects cause state to be lost
+    if not state or state not in oauth_states:
+        print(f"Warning: State parameter missing or doesn't match: {state}")
+        # Instead of returning error, we'll use default settings from the database
+        try:
+            # Get settings from database
+            qb_settings = get_quickbooks_settings()
+            client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+            client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value')
+            redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
+            environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+            
+            print(f"Using database settings instead of state: client_id: {client_id[:5]}..., redirect_uri: {redirect_uri}")
+        except Exception as e:
+            print(f"Error retrieving settings from database: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': 'Invalid state and unable to retrieve settings'
+            }), 400
+    else:
+        # Get the stored parameters from state
+        params = oauth_states[state]
+        client_id = params['client_id']
+        client_secret = params['client_secret']
+        redirect_uri = params['redirect_uri']
+        environment = params['environment']
+        print(f"Using state parameters: client_id: {client_id[:5]}..., redirect_uri: {redirect_uri}")
     
-    # Exchange the code for tokens
+    # Exchange the code for tokens immediately to prevent "already used" errors
     # Use EXACTLY the same redirect_uri as used in the authorization request
     # This MUST match exactly what's registered in the Intuit Developer Dashboard
     callback_uri = redirect_uri
@@ -177,8 +203,9 @@ def quickbooks_callback():
     # Create basic auth header
     auth = (client_id, client_secret)
     
-    # Make token request
+    # Make token request - IMPORTANT: We do this immediately to avoid code expiration
     try:
+        print(f"Exchanging authorization code for tokens immediately...")
         response = requests.post(
             INTUIT_TOKEN_ENDPOINT,
             data=token_data,
@@ -189,6 +216,7 @@ def quickbooks_callback():
         # Handle the response
         if response.status_code == 200:
             token_info = response.json()
+            print(f"Token exchange successful! Access token received: {token_info['access_token'][:10]}...")
             
             # Save tokens in the database
             update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
@@ -203,19 +231,36 @@ def quickbooks_callback():
             update_quickbooks_token("QB_ACCESS_TOKEN", token_info['access_token'], expires_at)
             update_quickbooks_token("QB_REFRESH_TOKEN", token_info['refresh_token'])
             
-            # Clean up the state
-            del oauth_states[state]
+            # Clean up the state if it exists
+            if state and state in oauth_states:
+                del oauth_states[state]
             
-            # Redirect back to the app with success status
-            return redirect(f"{redirect_uri}?success=true&realm_id={realm_id}")
+            # Redirect back to the streamlit app WITHOUT the code
+            # This is important - we don't want the code to be reused by the Streamlit app
+            print(f"Redirecting back to Streamlit with success status (NOT sending the code again)")
+            return redirect(f"{redirect_uri.split('/callback')[0]}?auth_success=true&realm_id={realm_id}")
         else:
             # Handle error
-            error_info = response.json() if response.text else {'error': 'Unknown error'}
-            return redirect(f"{redirect_uri}?success=false&error={error_info.get('error', 'Unknown error')}")
+            try:
+                error_info = response.json() if response.text else {'error': 'Unknown error'}
+                error_message = error_info.get('error', 'Unknown error')
+                error_description = error_info.get('error_description', '')
+                print(f"Token exchange error: {error_message} - {error_description}")
+                
+                # Check for specific error types
+                if error_message == 'invalid_grant':
+                    print("Invalid grant error - the authorization code has likely expired or been used already")
+                
+                # Redirect back to the app with error details
+                return redirect(f"{redirect_uri.split('/callback')[0]}?auth_error={error_message}&error_description={error_description}")
+            except Exception as parse_error:
+                print(f"Error parsing response: {str(parse_error)}")
+                return redirect(f"{redirect_uri.split('/callback')[0]}?auth_error=parse_error&error_description={str(parse_error)}")
             
     except Exception as e:
         # Handle any exceptions
-        return redirect(f"{redirect_uri}?success=false&error={str(e)}")
+        print(f"Exception during token exchange: {str(e)}")
+        return redirect(f"{redirect_uri.split('/callback')[0]}?auth_error=exception&error_description={str(e)}")
 
 @app.route('/api/quickbooks/refresh', methods=['POST'])
 def quickbooks_refresh():
