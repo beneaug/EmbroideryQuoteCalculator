@@ -1955,18 +1955,53 @@ def main():
     # Admin Settings Tab
     with tab3:
         st.header("Admin Settings")
-        st.warning("Changes to these settings will affect all future quotes. Use with caution.")
         
-        # Admin settings (no password protection as requested)
-        material_settings_updated = False
-        machine_settings_updated = False
-        labor_settings_updated = False
-        quickbooks_settings_updated = False
+        # Add password protection
+        import os
         
-        # Material Settings
-        with st.expander("Material Settings", expanded=True):
-            st.subheader("Thread Settings")
-            col1, col2 = st.columns(2)
+        # Check if the session state has the admin logged in flag
+        if 'admin_logged_in' not in st.session_state:
+            st.session_state.admin_logged_in = False
+        
+        # If not logged in, show login form
+        if not st.session_state.admin_logged_in:
+            st.warning("Admin access is protected. Please enter the password to continue.")
+            
+            with st.form("admin_login_form"):
+                admin_password = st.text_input("Admin Password", type="password")
+                submitted = st.form_submit_button("Login")
+                
+                if submitted:
+                    # Check password against environment variable
+                    correct_password = os.environ.get("ADMIN_PASSWORD", "")
+                    
+                    if admin_password == correct_password:
+                        st.session_state.admin_logged_in = True
+                        st.rerun()  # Refresh the page after successful login
+                    else:
+                        st.error("Incorrect password. Please try again.")
+        
+        # If logged in, show admin settings
+        if st.session_state.admin_logged_in:
+            st.warning("Changes to these settings will affect all future quotes. Use with caution.")
+            
+            # Logout button
+            if st.button("Logout from Admin"):
+                st.session_state.admin_logged_in = False
+                st.rerun()
+            
+            # Admin settings
+            material_settings_updated = False
+            machine_settings_updated = False
+            labor_settings_updated = False
+            quickbooks_settings_updated = False
+        
+        # Only show settings if logged in
+        if st.session_state.admin_logged_in:
+            # Material Settings
+            with st.expander("Material Settings", expanded=True):
+                st.subheader("Thread Settings")
+                col1, col2 = st.columns(2)
             
             with col1:
                 new_polyneon_5500yd_price = st.number_input(
@@ -2033,10 +2068,10 @@ def main():
                 st.success("Material settings updated successfully!")
                 material_settings_updated = True
         
-        # Machine Settings
-        with st.expander("Machine Settings"):
-            st.subheader("Machine Speed Settings")
-            col1, col2 = st.columns(2)
+            # Machine Settings
+            with st.expander("Machine Settings"):
+                st.subheader("Machine Speed Settings")
+                col1, col2 = st.columns(2)
             
             with col1:
                 new_stitch_speed_40wt = st.number_input(
@@ -2174,167 +2209,167 @@ def main():
                 st.success("Machine settings updated successfully!")
                 machine_settings_updated = True
         
-        # Labor Settings
-        with st.expander("Labor Settings"):
-            st.subheader("Default Labor Rate")
-            new_hourly_labor_rate = st.number_input(
-                "Default Hourly Labor Rate ($)",
-                min_value=1.0,
-                value=float(HOURLY_LABOR_RATE),
-                format="%.2f",
-                help="Default cost of labor per hour"
-            )
+            # Labor Settings
+            with st.expander("Labor Settings"):
+                st.subheader("Default Labor Rate")
+                new_hourly_labor_rate = st.number_input(
+                    "Default Hourly Labor Rate ($)",
+                    min_value=1.0,
+                    value=float(HOURLY_LABOR_RATE),
+                    format="%.2f",
+                    help="Default cost of labor per hour"
+                )
             
-            if st.button("Update Default Labor Rate"):
-                # Update database
-                database.update_setting("labor_settings", "HOURLY_LABOR_RATE", new_hourly_labor_rate)
-                st.success("Default labor rate updated successfully!")
-                labor_settings_updated = True
-                
-            # Horizontal line to separate default rate from worker management
-            st.markdown("---")
-            
-            # Labor Workers Management
-            st.subheader("Labor Workers Management")
-            st.markdown("Create, update, or remove laborers with individual hourly rates.")
-            
-            # Get existing workers from database
-            workers = database.get_labor_workers()
-            
-            # New worker form
-            with st.form("add_worker_form"):
-                st.subheader("Add New Worker")
-                new_worker_name = st.text_input("Worker Name")
-                new_worker_rate = st.number_input("Hourly Rate ($)", min_value=1.0, value=float(HOURLY_LABOR_RATE), format="%.2f")
-                new_worker_active = st.checkbox("Active by Default", value=True, help="If checked, this worker will be active by default in new quotes")
-                
-                add_worker_submitted = st.form_submit_button("Add Worker", type="primary")
-                if add_worker_submitted and new_worker_name:
-                    worker_id = database.add_labor_worker(new_worker_name, new_worker_rate, new_worker_active)
-                    if worker_id:
-                        st.success(f"Worker '{new_worker_name}' added successfully!")
-                        # Refresh the page to show the new worker
-                        st.rerun()
-                    else:
-                        st.error("Failed to add worker. Please try again.")
-            
-            # Display existing workers
-            if workers:
-                st.subheader("Existing Workers")
-                
-                # Custom CSS for worker cards
-                st.markdown("""
-                <style>
-                .worker-card {
-                    border: 1px solid #f3770c;
-                    border-radius: 10px;
-                    padding: 15px;
-                    margin-bottom: 15px;
-                    background-color: #fff9f0;
-                }
-                .worker-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 10px;
-                }
-                .worker-name {
-                    font-weight: bold;
-                    font-size: 16px;
-                    color: #3a1d0d;
-                }
-                .worker-rate {
-                    color: #f3770c;
-                    font-weight: bold;
-                }
-                .worker-status {
-                    font-size: 14px;
-                    padding: 3px 8px;
-                    border-radius: 12px;
-                    display: inline-block;
-                }
-                .status-active {
-                    background-color: #d4edda;
-                    color: #155724;
-                }
-                .status-inactive {
-                    background-color: #f8d7da;
-                    color: #721c24;
-                }
-                </style>
-                """, unsafe_allow_html=True)
-                
-                # Display existing workers in a table format with edit/delete buttons
-                worker_data = []
-                for worker in workers:
-                    worker_data.append({
-                        "id": worker['id'],
-                        "name": worker['name'],
-                        "hourly_rate": f"${worker['hourly_rate']:.2f}",
-                        "status": "Active" if worker['is_active'] else "Inactive"
-                    })
-                
-                # Create and display the workers table
-                worker_df = pd.DataFrame(worker_data)
-                st.dataframe(worker_df[["name", "hourly_rate", "status"]], use_container_width=True)
-                
-                # Worker editing section - select a worker to edit
-                st.subheader("Edit Worker")
-                
-                # Worker selection 
-                worker_options = [f"{w['name']} (${float(w['hourly_rate']):.2f}/hr)" for w in workers]
-                selected_worker_index = st.selectbox("Select a worker to edit:", 
-                                                    options=range(len(worker_options)),
-                                                    format_func=lambda x: worker_options[x])
-                
-                # Get the selected worker details
-                selected_worker = workers[selected_worker_index]
-                
-                # Show edit form for the selected worker
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Edit form for this worker
-                    edited_name = st.text_input("Name", value=selected_worker['name'], key=f"name_{selected_worker['id']}")
-                    edited_rate = st.number_input("Hourly Rate ($)", 
-                                              min_value=1.0, 
-                                              value=float(selected_worker['hourly_rate']), 
-                                              format="%.2f", 
-                                              key=f"rate_{selected_worker['id']}")
-                
-                with col2:
-                    edited_active = st.checkbox("Active", 
-                                            value=selected_worker['is_active'], 
-                                            key=f"active_{selected_worker['id']}")
+                if st.button("Update Default Labor Rate"):
+                    # Update database
+                    database.update_setting("labor_settings", "HOURLY_LABOR_RATE", new_hourly_labor_rate)
+                    st.success("Default labor rate updated successfully!")
+                    labor_settings_updated = True
                     
-                # Save changes button
-                if st.button("Save Changes", key=f"save_{selected_worker['id']}"):
-                    success = database.update_labor_worker(
-                        selected_worker['id'], 
-                        name=edited_name,
-                        hourly_rate=edited_rate,
-                        is_active=edited_active
-                    )
-                    if success:
-                        st.success(f"Worker '{edited_name}' updated successfully!")
-                        # Refresh the page to show updated data
-                        st.rerun()
-                    else:
-                        st.error("Failed to update worker. Please try again.")
+                # Horizontal line to separate default rate from worker management
+                st.markdown("---")
                 
-                # Delete button (with confirmation)
-                if st.button("Delete Worker", key=f"delete_{selected_worker['id']}"):
-                    confirm_delete = st.checkbox("Confirm deletion? This cannot be undone.", key=f"confirm_{selected_worker['id']}")
-                    if confirm_delete:
-                        success = database.delete_labor_worker(selected_worker['id'])
-                        if success:
-                            st.success(f"Worker '{selected_worker['name']}' deleted successfully!")
-                            # Refresh the page to update the list
+                # Labor Workers Management
+                st.subheader("Labor Workers Management")
+                st.markdown("Create, update, or remove laborers with individual hourly rates.")
+                
+                # Get existing workers from database
+                workers = database.get_labor_workers()
+            
+                # New worker form
+                with st.form("add_worker_form"):
+                    st.subheader("Add New Worker")
+                    new_worker_name = st.text_input("Worker Name")
+                    new_worker_rate = st.number_input("Hourly Rate ($)", min_value=1.0, value=float(HOURLY_LABOR_RATE), format="%.2f")
+                    new_worker_active = st.checkbox("Active by Default", value=True, help="If checked, this worker will be active by default in new quotes")
+                
+                    add_worker_submitted = st.form_submit_button("Add Worker", type="primary")
+                    if add_worker_submitted and new_worker_name:
+                        worker_id = database.add_labor_worker(new_worker_name, new_worker_rate, new_worker_active)
+                        if worker_id:
+                            st.success(f"Worker '{new_worker_name}' added successfully!")
+                            # Refresh the page to show the new worker
                             st.rerun()
                         else:
-                            st.error("Failed to delete worker. Please try again.")
-            else:
-                st.info("No workers found. Add your first worker using the form above.")
+                            st.error("Failed to add worker. Please try again.")
+            
+                # Display existing workers
+                if workers:
+                    st.subheader("Existing Workers")
+                
+                    # Custom CSS for worker cards
+                    st.markdown("""
+                    <style>
+                    .worker-card {
+                        border: 1px solid #f3770c;
+                        border-radius: 10px;
+                        padding: 15px;
+                        margin-bottom: 15px;
+                        background-color: #fff9f0;
+                    }
+                    .worker-header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 10px;
+                    }
+                    .worker-name {
+                        font-weight: bold;
+                        font-size: 16px;
+                        color: #3a1d0d;
+                    }
+                    .worker-rate {
+                        color: #f3770c;
+                        font-weight: bold;
+                    }
+                    .worker-status {
+                        font-size: 14px;
+                        padding: 3px 8px;
+                        border-radius: 12px;
+                        display: inline-block;
+                    }
+                    .status-active {
+                        background-color: #d4edda;
+                        color: #155724;
+                    }
+                    .status-inactive {
+                        background-color: #f8d7da;
+                        color: #721c24;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
+                
+                    # Display existing workers in a table format with edit/delete buttons
+                    worker_data = []
+                    for worker in workers:
+                        worker_data.append({
+                            "id": worker['id'],
+                            "name": worker['name'],
+                            "hourly_rate": f"${worker['hourly_rate']:.2f}",
+                            "status": "Active" if worker['is_active'] else "Inactive"
+                        })
+                    
+                    # Create and display the workers table
+                    worker_df = pd.DataFrame(worker_data)
+                    st.dataframe(worker_df[["name", "hourly_rate", "status"]], use_container_width=True)
+                    
+                    # Worker editing section - select a worker to edit
+                    st.subheader("Edit Worker")
+                    
+                    # Worker selection 
+                    worker_options = [f"{w['name']} (${float(w['hourly_rate']):.2f}/hr)" for w in workers]
+                    selected_worker_index = st.selectbox("Select a worker to edit:", 
+                                                        options=range(len(worker_options)),
+                                                        format_func=lambda x: worker_options[x])
+                
+                    # Get the selected worker details
+                    selected_worker = workers[selected_worker_index]
+                    
+                    # Show edit form for the selected worker
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Edit form for this worker
+                        edited_name = st.text_input("Name", value=selected_worker['name'], key=f"name_{selected_worker['id']}")
+                        edited_rate = st.number_input("Hourly Rate ($)", 
+                                                  min_value=1.0, 
+                                                  value=float(selected_worker['hourly_rate']), 
+                                                  format="%.2f", 
+                                                  key=f"rate_{selected_worker['id']}")
+                    
+                    with col2:
+                        edited_active = st.checkbox("Active", 
+                                                value=selected_worker['is_active'], 
+                                                key=f"active_{selected_worker['id']}")
+                        
+                    # Save changes button
+                    if st.button("Save Changes", key=f"save_{selected_worker['id']}"):
+                        success = database.update_labor_worker(
+                            selected_worker['id'], 
+                            name=edited_name,
+                            hourly_rate=edited_rate,
+                            is_active=edited_active
+                        )
+                        if success:
+                            st.success(f"Worker '{edited_name}' updated successfully!")
+                            # Refresh the page to show updated data
+                            st.rerun()
+                        else:
+                            st.error("Failed to update worker. Please try again.")
+                    
+                    # Delete button (with confirmation)
+                    if st.button("Delete Worker", key=f"delete_{selected_worker['id']}"):
+                        confirm_delete = st.checkbox("Confirm deletion? This cannot be undone.", key=f"confirm_{selected_worker['id']}")
+                        if confirm_delete:
+                            success = database.delete_labor_worker(selected_worker['id'])
+                            if success:
+                                st.success(f"Worker '{selected_worker['name']}' deleted successfully!")
+                                # Refresh the page to update the list
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete worker. Please try again.")
+                else:
+                    st.info("No workers found. Add your first worker using the form above.")
         
         # QuickBooks Settings
         with st.expander("QuickBooks Integration Settings"):
