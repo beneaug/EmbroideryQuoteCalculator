@@ -1,0 +1,43 @@
+Error during QuickBooks authentication: HTTP status 400, error message: b'{"error":"invalid_grant","error_description":"Invalid authorization code"}', intuit_tid 1-67edb28e-34f1bc9e3b72c6385422335b at time Wed, 02 Apr 2025 21:56:30 GMT
+
+Traceback (most recent call last):
+File "/home/runner/workspace/app.py", line 1551, in main
+auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/intuitlib/client.py", line 133, in get_bearer_token
+send_request('POST', self.token_endpoint, headers, self, body=urlencode(body), session=self)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/intuitlib/utils.py", line 95, in send_request
+raise AuthClientError(response)
+intuitlib.exceptions.AuthClientError: HTTP status 400, error message: b'{"error":"invalid_grant","error_description":"Invalid authorization code"}', intuit_tid 1-67edb28e-34f1bc9e3b72c6385422335b at time Wed, 02 Apr 2025 21:56:30 GMT
+
+The error message “invalid_grant” indicates that QuickBooks is rejecting the authorization code provided during the token exchange. This can happen for several reasons. Here are some steps to troubleshoot and resolve the issue:
+1. One-Time Use
+• Make sure that the authorization code is exchanged only once. If your callback endpoint is inadvertently triggering the token exchange more than once (for example, through a page refresh or duplicate submissions), the code will be considered invalid on subsequent attempts.
+2. Code Expiry
+• Authorization codes typically expire within 10 minutes. Ensure that you are exchanging the code for tokens immediately after it’s received. Any delay can lead to the code being marked as expired.
+3. Exact Redirect URI Match
+• Verify that the redirect URI used during the token exchange exactly matches the one registered in your Intuit Developer Portal. Even small mismatches (such as trailing slashes, differences in protocol, or port numbers) can result in an invalid authorization code error.
+4. Session Management
+• Confirm that your session tracking is correctly implemented. This helps avoid multiple token exchanges using the same code and ensures that a new, valid code is requested when needed.
+5. Fresh OAuth Flow
+• If you’re testing, try restarting the OAuth flow in an incognito window to eliminate any cached sessions or tokens that might be causing conflicts.
+6. Logging and Debugging
+• Review your server logs to ensure that the token exchange request is made only once and that the code is coming directly from the OAuth callback. Look for any duplicate requests or unexpected behavior.
+
+By addressing these points, you should be able to avoid the “invalid authorization code” error. If the issue persists, re-run the entire OAuth flow from start to finish to ensure that the code is fresh and being used as intended.
+
+"Failed to connect to QuickBooks: Missing QuickBooks settings: QB_REFRESH_TOKEN"
+
+This error means that your application can’t find a stored refresh token, which is essential for maintaining an active connection to QuickBooks after the initial access token expires. Here’s how you can resolve it:
+• Ensure Token Exchange: After completing the OAuth flow, your app should exchange the authorization code for both an access token and a refresh token. Verify that this exchange is successful and that both tokens are being received.
+• Store the Refresh Token:
+• Check your configuration (e.g., your environment variables or configuration files) to ensure that the refresh token is saved under the key QB_REFRESH_TOKEN.
+• If you’re using a .env file, make sure it includes a line like:
+
+QB_REFRESH_TOKEN=your_refresh_token_here
+
+•	Update the Settings:
+•	If the token isn’t being stored automatically, you might need to add code to capture and save the refresh token from the OAuth response.
+•	Confirm that your application’s configuration file is correctly loaded and that the refresh token is accessible to your app at runtime.
+•	Re-run the OAuth Flow if Needed:
+•	If you’re missing a refresh token because the OAuth flow didn’t complete properly, restart the connection process to obtain a new set of tokens.
+By ensuring your app captures and stores the refresh token correctly, you’ll prevent this error and allow your app to maintain its connection to QuickBooks seamlessly.

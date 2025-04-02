@@ -1,124 +1,174 @@
 # QuickBooks OAuth Integration Setup Guide
 
-## Version 2.0: Enhanced OAuth Flow
+## Quick Start: Essential Steps
 
-We've made significant improvements to the OAuth implementation to resolve common issues:
+1. **Set Replit Secrets** (Tools > Secrets):
+   - `QB_CLIENT_ID`: Your Intuit application Client ID
+   - `QB_CLIENT_SECRET`: Your Intuit application Client Secret 
+   - `QB_REDIRECT_URI`: Must exactly match what's in Intuit Developer Dashboard
 
-1. **Server-side OAuth Handling**: We now use a dedicated OAuth server to process the authorization code, completely avoiding "already used" errors.
+2. **Configure Intuit Developer Dashboard**:
+   - Add your callback URL: `https://your-replit-domain.replit.dev/callback`
+   - **URI Must Match Exactly** – No extra slashes, parameters, or differences
 
-2. **Improved Error Handling**: Specific error types are detected and clear guidance is provided for resolution.
+3. **Connect in Application**:
+   - Go to Admin Settings > QuickBooks Integration
+   - Click "Connect to QuickBooks"
+   - Authorize when redirected to Intuit
+   - You'll be redirected back to your application
 
-3. **Automatic Redirect URI Management**: The app now correctly manages redirect URIs to prevent mismatches.
+## Most Common Error: "Invalid authorization code" 🚨
 
-## Common Issues with QuickBooks OAuth
+The error `{"error":"invalid_grant","error_description":"Invalid authorization code"}` typically happens for one of these reasons:
 
-### Issue 1: Invalid Redirect URI
+### 1. Redirect URI Mismatch (Most Common)
 
-The error **"The redirect_uri query parameter value is invalid"** happens because there's a mismatch between:
-1. The redirect URI that's registered in your Intuit Developer Dashboard
-2. The redirect URI that our application is sending during the OAuth flow
+The redirect URI in your Replit Secrets **MUST** exactly match what's in your Intuit Developer Dashboard, down to the last character:
 
-### Issue 2: Authorization Code Has Expired or Already Been Used
+✅ **Correct Example**:  
+Both in Replit Secrets and Intuit Dashboard: `https://myapp.replit.dev/callback`
 
-The error **"The authorization code has expired or already been used"** occurs when:
-1. You attempt to use the same authorization code more than once
-2. You wait more than 10 minutes to exchange the code for tokens
+❌ **Incorrect Examples**:  
+- Different protocol: `http://myapp.replit.dev/callback` vs `https://myapp.replit.dev/callback`
+- Extra slash: `https://myapp.replit.dev/callback/` vs `https://myapp.replit.dev/callback`
+- Different path: `https://myapp.replit.dev/oauth/callback` vs `https://myapp.replit.dev/callback`
 
-## How to Fix These Issues
+### 2. Code Reuse
 
-### For Invalid Redirect URI:
+**Authorization codes can only be used once.** If you:
+- Refresh the page during authentication
+- Try to use the same authorization link twice
+- Have two browser tabs open with your application
 
-#### Option 1: Update Your Intuit Developer Dashboard (Recommended)
+You'll get this error because the code was already used.
 
-1. Log into the [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)
-2. Select your application
-3. Go to the **Keys & OAuth** tab
-4. In the **Redirect URIs** section, add or modify the URI to exactly match the one displayed in the application logs. It will look like:
+### 3. Code Expiration
+
+Authorization codes expire after 10 minutes. Complete the process quickly.
+
+## Step-by-Step Setup with Screenshots
+
+### Step 1: Create or Configure Intuit Developer App
+
+1. Log into [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)
+2. Create a new app or select existing app
+3. Go to the "Keys & OAuth" section
+
+### Step 2: Configure Redirect URI in Intuit Developer Dashboard
+
+![Configure Redirect URI](https://i.imgur.com/5F1kqo2.png)
+
+1. In the **Redirect URIs** section, add your specific Replit URL:
    ```
-   https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+   https://your-replit-domain.replit.dev/callback
    ```
-   (The specific URL will vary each time your Replit restarts)
-5. When adding the redirect URI to Intuit:
-   - Make sure to include `/callback` at the end
-   - Copy the EXACT URI from the application logs, with no modifications
-   - Do not add any additional query parameters
-6. Save your changes in the Intuit Developer Dashboard
-7. Try the authorization process again
+2. Make sure the URI includes `/callback` at the end
+3. Save your changes
 
-**IMPORTANT NOTE**: Every time your Replit restarts, your domain name changes. You MUST update the redirect URI in your Intuit Developer Dashboard to match the new domain name. Look for this line in your application logs:
-```
-Setting redirect URI to OAuth server: https://your-replit-domain/callback
-```
+### Step 3: Get OAuth Credentials
 
-#### Option 2: Update Our Application Code
+From the same "Keys & OAuth" page, find:
+1. **Client ID** 
+2. **Client Secret**
 
-If you can't modify the Intuit Developer Dashboard (or prefer not to), you can modify our code to match your registered redirect URI:
+### Step 4: Set Replit Secrets
 
-1. Open the `app.py` file
-2. Locate the `get_quickbooks_auth_url` function
-3. Find the section that sets the `default_redirect_uri` variable
-4. Uncomment the appropriate option or modify it to match what's registered in your Intuit Developer Dashboard
+1. In your Replit project, go to **Tools > Secrets**
+2. Add these three secrets:
+   - `QB_CLIENT_ID`: Your app's client ID
+   - `QB_CLIENT_SECRET`: Your app's client secret
+   - `QB_REDIRECT_URI`: EXACT redirect URI (e.g., `https://your-replit-domain.replit.dev/callback`)
 
-### For Expired/Used Authorization Code:
+### Step 5: Connect in the Application
 
-Our new implementation handles this automatically with a server-side OAuth flow, but if you still encounter issues:
+1. Go to the Admin Settings tab 
+2. Open QuickBooks Integration Settings
+3. Click "Connect to QuickBooks"
+4. Follow the Intuit authorization flow
+5. You'll be automatically redirected back to your application
 
-1. Start the authorization process fresh:
-   - Click "Continue to Application" to clear any current parameters
-   - Go back to the QuickBooks settings page
-   - Click "Connect to QuickBooks" again
-   - Complete the authorization quickly (within 10 minutes)
+## Complete Troubleshooting Guide
 
-2. Don't refresh the page during authorization:
-   - Once you're redirected back to the application after authorizing, let the process complete
-   - Avoid refreshing the page or navigating away
+### A. "Invalid authorization code" Error Fix
 
-3. Clear browser cache if issues persist:
-   - Browser cache can sometimes cause problems with OAuth flows
-   - Try opening in an incognito/private window
+If you see this error:
 
-## Enhanced OAuth Flow Explained
+1. **Verify URI Match**: Double-check that the `QB_REDIRECT_URI` in Replit Secrets **exactly** matches what's in your Intuit Developer Dashboard.
 
-Our improved OAuth flow resolves common issues by implementing industry best practices:
+2. **Reset and Restart**:
+   - Go to Admin Settings > QuickBooks Integration
+   - Use the "Reset QuickBooks Connection" button
+   - Close all browser tabs with your application
+   - Start the process again from scratch
 
-1. User clicks "Connect to QuickBooks" in the application
-2. The application generates a secure authorization URL via the OAuth server
-3. User is redirected to Intuit's login/consent page
-4. After authorization, Intuit redirects back to our OAuth server with the code
-5. **The OAuth server immediately exchanges the code for tokens** (this is the key improvement)
-6. The OAuth server stores the tokens in the database and redirects back to the Streamlit app
-7. The Streamlit app displays a success message and can immediately use the stored tokens
+3. **Incognito Window**: Use an incognito/private browser window to eliminate caching issues.
 
-This approach avoids the "code already used" error because:
-- The code is only used once, by the OAuth server
-- Streamlit's automatic re-runs don't cause multiple exchange attempts
-- The code exchange happens immediately, preventing expiration
+4. **Fresh Start**: Delete and recreate the redirect URI in your Intuit Developer Dashboard, then update the Replit Secret to match exactly.
 
-## Troubleshooting the OAuth Flow
+### B. "Invalid client" Error Fix
 
-If you still encounter issues:
+This error typically indicates credential issues:
 
-1. **Check the OAuth server logs**: The OAuth server provides detailed logging of the entire process.
+1. **Check Credentials**: Verify your Client ID and Client Secret are correct. They are case-sensitive.
 
-2. **Verify your credentials**: Make sure your Client ID and Client Secret are correct in the QuickBooks settings.
+2. **Regenerate Credentials**: In the Intuit Developer Dashboard, you may need to regenerate your credentials if you suspect they're compromised.
 
-3. **Confirm the redirect URI**: Ensure that the redirect URI in your Intuit Developer Dashboard EXACTLY matches what's configured in the application.
+3. **Environment Mismatch**: Make sure you're accessing the correct environment (sandbox/production).
 
-4. **Check for timeouts**: OAuth codes expire after 10 minutes, so complete the process promptly.
+### C. "Token expired" Error Fix
 
-5. **Reset authentication if needed**: Use the "Reset Authentication" button in the QuickBooks settings to clear any existing tokens and start fresh.
+1. **Automatic Refresh**: The application normally refreshes tokens automatically.
 
-## Important Notes
+2. **Manual Reset**: If tokens don't refresh properly:
+   - Reset your QuickBooks connection
+   - Reconnect from scratch
 
-1. The redirect URI must match **EXACTLY** what's in your Intuit Developer Dashboard, including protocol, domain name, path, and any query parameters.
+## OAuth Flow Explained
 
-2. If your Replit URL changes (which can happen when a repl restarts), you'll need to update your Intuit Developer Dashboard again.
+Our authentication flow is simplified to reduce errors:
 
-3. Authorization codes expire after 10 minutes and can only be used once.
+1. Application retrieves credentials from Replit Secrets
+2. App creates a secure state parameter to prevent CSRF attacks
+3. User is redirected to QuickBooks for authorization
+4. After authorization, QuickBooks redirects back with a code
+5. Application exchanges code for access/refresh tokens
+6. Tokens are securely stored in database and automatically refreshed
 
-4. In a production environment, use a stable domain name registered specifically for your application.
+## Advanced Troubleshooting
+
+### Database Connection Issues
+
+If tokens aren't being stored properly:
+
+1. Check database connection status in the application
+2. Verify database tables are created correctly
+3. Check for any database errors in the logs
+
+### URL Parameter Issues
+
+The callback includes important parameters:
+- `code`: The authorization code
+- `realmId`: Your QuickBooks company ID
+- `state`: Security parameter to prevent CSRF attacks
+
+If any are missing, the OAuth process will fail.
+
+### Tools for Diagnosis
+
+1. **Application Logs**: Check for detailed error messages
+2. **Network Inspector**: Use browser developer tools to inspect the OAuth requests
+3. **Error Messages**: Look for specific error codes in QuickBooks API responses
 
 ## Need More Help?
 
-Intuit provides detailed documentation about OAuth implementation at:
-https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization
+1. **QuickBooks Developer Documentation**:
+   - [OAuth 2.0 Guide](https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/oauth-2.0)
+   - [Authentication Errors](https://developer.intuit.com/app/developer/qbo/docs/develop/troubleshooting/oauth)
+
+2. **Reset & Restart**: When in doubt, reset the entire authentication process:
+   - Reset QuickBooks connection in Admin Settings
+   - Update your Replit Secrets
+   - Verify redirect URI exact match
+   - Start fresh with a new authorization attempt
+
+Remember: The exact match of redirect URI is the most common issue. Double-check this first!
