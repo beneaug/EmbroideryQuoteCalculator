@@ -878,10 +878,12 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
 def get_quickbooks_auth_url():
     """Generate QuickBooks authorization URL"""
     if not QUICKBOOKS_AVAILABLE:
+        st.error("QuickBooks libraries are not available")
         return None
     
     qb_settings = database.get_quickbooks_settings()
     client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+    client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
     redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
     environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
     
@@ -891,7 +893,7 @@ def get_quickbooks_auth_url():
     try:
         auth_client = AuthClient(
             client_id=client_id,
-            client_secret=qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''),
+            client_secret=client_secret,
             environment=environment,
             redirect_uri=redirect_uri
         )
@@ -903,7 +905,10 @@ def get_quickbooks_auth_url():
         
         auth_url = auth_client.get_authorization_url(scopes)
         return auth_url
-    except Exception:
+    except Exception as e:
+        st.error(f"Error generating authorization URL: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
         return None
 
 def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None):
@@ -2451,7 +2456,8 @@ def main():
                 )
             
             # Save settings button
-            if st.button("Save QuickBooks Settings"):
+            save_button = st.button("Save QuickBooks Settings")
+            if save_button:
                 # Update settings in database
                 database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
                 database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
@@ -2461,8 +2467,10 @@ def main():
                 database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
                 
                 st.success("QuickBooks settings saved successfully!")
+                # Force Streamlit to rerun and display authorization button
+                st.rerun()
             
-            # Generate authorization URL button
+            # Always show authorization section if Client ID and Redirect URI are set
             if client_id and redirect_uri:
                 auth_url = get_quickbooks_auth_url()
                 if auth_url:
