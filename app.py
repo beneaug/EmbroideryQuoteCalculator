@@ -174,8 +174,9 @@ def render_design_preview(pattern, width=400, height=400, use_foam=False):
     pixel_width = max(pixel_width, width)
     pixel_height = max(pixel_height, height)
     
-    # Create an image with the correct dimensions for 1:1 scale
-    img = Image.new('RGB', (pixel_width, pixel_height), color='white')
+    # Create an image with the correct dimensions for 1:1 scale and match app background
+    # Use the #fff9f0 cream color to match app background
+    img = Image.new('RGB', (pixel_width, pixel_height), color='#fff9f0')
     draw = ImageDraw.Draw(img)
     
     # Draw design boundary if foam is used (add 0.5 inches around the design)
@@ -197,7 +198,8 @@ def render_design_preview(pattern, width=400, height=400, use_foam=False):
         
         # Convert to tuple for the rectangle function
         boundary_coords = tuple([boundary_x1, boundary_y1, boundary_x2, boundary_y2])
-        draw.rectangle(boundary_coords, outline='lightblue', width=2)
+        # Use orange outline for foam to match app's theme
+        draw.rectangle(boundary_coords, outline='#f3770c', width=2)
     
     # Center the design in the image
     offset_x = pixel_width // 2 - (design_width * pixels_per_unit) // 2
@@ -687,7 +689,18 @@ def generate_customer_quote_pdf(design_info, job_inputs, cost_results):
 def get_download_link(buffer, filename, text):
     """Generate a download link for a file"""
     b64 = base64.b64encode(buffer.read()).decode()
-    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">{text}</a>'
+    href = f'''
+    <a href="data:application/octet-stream;base64,{b64}" 
+       download="{filename}" 
+       class="download-button" 
+       style="color: white; background: linear-gradient(90deg, #f3770c 0%, #f5993c 100%); display: block; padding: 12px 20px; margin: 10px 5px; border-radius: 15px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(243, 119, 12, 0.3); font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 600; transition: all 0.3s ease;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="white" viewBox="0 0 16 16" style="vertical-align: middle; margin-right: 10px;">
+            <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+            <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+        </svg>
+        {text}
+    </a>
+    '''
     return href
 
 def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None):
