@@ -1462,8 +1462,14 @@ def main():
     # Check for query parameters that could contain OAuth callback data
     query_params = st.query_params
     
-    # Handle QuickBooks OAuth callback if present
-    if 'code' in query_params and 'realmId' in query_params:
+    # Create a session key to prevent processing the same OAuth code multiple times
+    # This prevents the "code already used" error when Streamlit reruns
+    oauth_processing_key = "oauth_code_" + str(query_params.get('code', [''])[0])
+    
+    # Handle QuickBooks OAuth callback if present and we haven't processed this code before
+    if 'code' in query_params and 'realmId' in query_params and oauth_processing_key not in st.session_state:
+        # Mark this code as being processed to prevent duplicate processing
+        st.session_state[oauth_processing_key] = True
         st.info("OAuth callback detected! Processing authentication...")
         
         # Check for error parameter in callback

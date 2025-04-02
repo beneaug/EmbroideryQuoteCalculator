@@ -1,0 +1,69 @@
+That particular error—“The redirect uri query parameter value is invalid. Make sure it is listed in the Redirect URIs section of your app settings and matches it exactly”—is almost always caused by a mismatch between what QuickBooks Online (QBO) expects for the redirect/callback URL and what your application is actually sending. Here are the most common reasons and how to fix them:
+
+⸻
+
+1. Check your Redirect URI settings in the Intuit Developer Portal
+	1.	Log in to your Intuit Developer account.
+	2.	Go to Dashboard → Apps → Select your app → Keys & OAuth.
+	3.	Under Redirect URIs, make sure you have exactly the same URI that your code uses as the callback/redirect.
+	•	This includes protocol (http:// vs https://), port numbers (e.g. :3000), trailing slashes, etc.
+	•	If your local dev environment uses something like http://localhost:3000/auth/callback, you must have that exact string in the Developer Portal.
+
+If the URL in your code differs by even a character (extra slash, uppercase letter, missing port, etc.), QBO will reject it with this error.
+
+⸻
+
+2. Verify the callback URL in your code
+
+In your repository (beneaug/EmbroideryQuoteCalculator), look for where you configure OAuth settings. This might be in:
+	•	A .env file containing OAUTH_REDIRECT_URI=...
+	•	A config file or environment variable referencing the redirect/callback path
+	•	Wherever you initialize the OAuth client (e.g., if you’re using Node + passport-quickbooks or the intuit-oauth library)
+
+Make sure that the redirect URI you specify there matches precisely what’s in the Intuit Developer Portal.
+
+⸻
+
+3. Double-check Development vs. Production mode
+
+If your app is still in development (sandbox) mode in the Intuit Developer Portal, ensure:
+	•	You’re using the development keys (Client ID, Client Secret) for local testing
+	•	The “Redirect URIs” section you’re editing is indeed the development one (not the production field)
+
+If you’ve moved your app to production, or you’re using production keys, then you must ensure the production redirect URI is the one you’ve set in the Developer Portal and in your code.
+
+⸻
+
+4. Confirm you’re using OAuth2 (not old OAuth1 credentials)
+
+QuickBooks moved to OAuth2. If you have older OAuth1 credentials or code, it may fail. Confirm in your Intuit Developer Portal that you are using the OAuth2 keys and that your code references those credentials.
+
+⸻
+
+5. Watch out for local vs. deployed environment
+
+Sometimes the code runs locally on http://localhost:3000 but the redirect URI in the Developer Portal is set to a production domain (e.g. https://myapp.com).
+	•	If you’re testing locally, add the http://localhost:3000/... callback as an additional Redirect URI in the Developer Portal.
+	•	When you deploy, add the real domain (e.g. https://myapp.com/oauth/callback) as well.
+
+⸻
+
+6. Make sure your “state” parameter is not messing things up
+
+When you initiate an OAuth2 request, sometimes you pass a state parameter. QBO includes it in the callback. If your code tries to parse it incorrectly or if your config rejects certain state strings, it might fail. Usually, the “invalid redirect URI” error is exactly that, but occasionally the state mismatch can look similar. Just keep an eye out.
+
+⸻
+
+7. Try a clean re-authorization flow
+
+Sometimes Intuit caches old flows. If you changed your callback URL recently, do a clean test:
+	1.	Rebuild or restart your local server (if you’re testing locally).
+	2.	Make sure your environment variables or config are definitely pointing to the correct callback.
+	3.	Go to the Intuit Developer Portal, verify the Redirect URI is updated, and save.
+	4.	Try connecting again with a fresh OAuth flow (e.g., by hitting the “Connect to QuickBooks” button in your app).
+
+⸻
+
+Summary
+
+In almost every case, the solution is to ensure your “Redirect URIs” in the Intuit Developer Portal match your application’s callback URL character-for-character. Double-check environment modes, local vs. production, and your OAuth version. Once those align, the “redirect uri query parameter value is invalid” error should go away.
