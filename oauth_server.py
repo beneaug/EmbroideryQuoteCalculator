@@ -127,6 +127,10 @@ def quickbooks_auth():
 # Adding explicit route handlers for all possible redirect URI formats
 # This ensures that no matter what URL format is registered in Intuit Developer Dashboard,
 # our server will handle the callback correctly
+# NOTE: The route defined here must match the path portion of the redirect_uri registered in Intuit
+# Developer Dashboard. For example, if your registered redirect_uri is:
+# https://your-domain.com/custom-path
+# Then you'd need to add @app.route('/custom-path') here
 def quickbooks_callback():
     """Handle the OAuth callback from QuickBooks"""
     # Get the authorization code and state

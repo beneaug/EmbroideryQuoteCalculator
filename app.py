@@ -1352,10 +1352,18 @@ def get_quickbooks_auth_url():
     # Create a redirect URI based on the Replit domain
     # CRITICAL: This must match EXACTLY what's registered in Intuit Developer Dashboard
     if replit_domain:
-        # Based on the error message about redirect_uri being invalid,
-        # we need to use the exact format registered in the Intuit Developer Dashboard
-        # The error indicates we need to include the /callback path
+        # IMPORTANT: The redirect URI MUST match exactly what's registered in the 
+        # Intuit Developer Dashboard - you might need to modify this based on your registration
+        
+        # Option 1: If you registered with /callback path (most common)
         default_redirect_uri = f"https://{replit_domain}/callback"
+        
+        # Option 2: If you registered the root domain without path
+        # Uncomment this line if Option 1 doesn't work
+        # default_redirect_uri = f"https://{replit_domain}"
+        
+        # Option 3: If you registered with a different path
+        # default_redirect_uri = f"https://{replit_domain}/your-custom-path"
         
         # NOTE: If you ever change the redirect URI in Intuit Developer Dashboard,
         # you must update this code to match EXACTLY what's registered there
@@ -3559,6 +3567,19 @@ def main():
             # Connect to QuickBooks button
             with button_col2:
                 import requests
+                
+                # Help text container about Intuit redirect URIs - use info box instead of expander
+                st.info(f"""
+                ⚠️ **Having trouble connecting?** 
+                
+                Make sure your Intuit Developer Dashboard has the exact redirect URI:
+                ```
+                {default_redirect}
+                ```
+                
+                See QUICKBOOKS_OAUTH_SETUP.md for help.
+                """)
+                
                 connect_button = st.button("Connect to QuickBooks", 
                                       type="primary",
                                       help="Start the QuickBooks authorization process",
