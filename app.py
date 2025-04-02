@@ -979,6 +979,10 @@ def get_quickbooks_auth_url():
     st.info("Retrieving QuickBooks settings from database...")
     qb_settings = database.get_quickbooks_settings()
     
+    # Get the current Replit URL for the correct redirect URI
+    import os
+    replit_domain = os.environ.get("REPLIT_DOMAIN")
+    
     # Mask sensitive values but show if they exist
     client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
     client_id_masked = f"{client_id[:5]}..." if client_id else None
@@ -986,8 +990,21 @@ def get_quickbooks_auth_url():
     client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
     client_secret_masked = "****" if client_secret else None
     
-    redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
+    # Create a redirect URI based on the Replit domain
+    # This ensures we can capture the OAuth redirect properly
+    if replit_domain:
+        default_redirect_uri = f"https://{replit_domain}"
+    else:
+        default_redirect_uri = "http://localhost:5000"
+    
+    redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', default_redirect_uri)
     environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+    
+    # Update the redirect URI in the database if it's using the default
+    if qb_settings.get('QB_REDIRECT_URI', {}).get('value') != default_redirect_uri and replit_domain:
+        st.info(f"Updating redirect URI to {default_redirect_uri}")
+        database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect_uri)
+        redirect_uri = default_redirect_uri
     
     # Log the retrieved settings (masked for security)
     st.info(f"""QuickBooks settings retrieved:
@@ -1070,6 +1087,104 @@ def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None
 
 # Main Application
 def main():
+    # Check for query parameters that could contain OAuth callback data
+    query_params = st.experimental_get_query_params()
+    
+    # Handle QuickBooks OAuth callback if present
+    if 'code' in query_params and 'realmId' in query_params:
+        st.info("OAuth callback detected! Processing authentication...")
+        
+        # Get required settings from database
+        qb_settings = database.get_quickbooks_settings()
+        client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+        client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value')
+        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
+        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+        
+        # Extract authorization code and realmId
+        auth_code = query_params['code'][0]
+        realm_id = query_params['realmId'][0]
+        
+        # Add a container to show processing steps
+        with st.container():
+            st.write("### QuickBooks Authentication Processing")
+            st.info(f"Authorization code received: {auth_code[:5]}...")
+            st.info(f"Realm ID received: {realm_id}")
+            
+            try:
+                # We need to import these here
+                from intuitlib.client import AuthClient as IntuitAuthClient
+                from intuitlib.enums import Scopes
+                
+                # Initialize auth client
+                st.info("Initializing OAuth client...")
+                intuit_auth_client = IntuitAuthClient(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    environment=environment,
+                    redirect_uri=redirect_uri
+                )
+                
+                # Exchange code for tokens
+                st.info("Exchanging authorization code for tokens...")
+                scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
+                intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                
+                # Update realm_id in database
+                db_result = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                st.info(f"Realm ID saved to database: {'Success' if db_result else 'Failed'}")
+                
+                # Show token information (partially masked)
+                st.info(f"Access token received: {intuit_auth_client.access_token[:10]}...")
+                st.info(f"Refresh token received: {intuit_auth_client.refresh_token[:10]}...")
+                st.info(f"Token expires in: {intuit_auth_client.expires_in} seconds")
+                
+                # Save tokens to database
+                st.info("Saving tokens to database...")
+                
+                # Save access token with expiration
+                access_result = database.update_quickbooks_token(
+                    "QB_ACCESS_TOKEN", 
+                    intuit_auth_client.access_token,
+                    time.time() + intuit_auth_client.expires_in
+                )
+                st.info(f"Access token saved: {'Success' if access_result else 'Failed'}")
+                
+                # Save refresh token
+                refresh_result = database.update_quickbooks_token(
+                    "QB_REFRESH_TOKEN", 
+                    intuit_auth_client.refresh_token
+                )
+                st.info(f"Refresh token saved: {'Success' if refresh_result else 'Failed'}")
+                
+                # Check authentication status
+                auth_status, auth_message = database.get_quickbooks_auth_status()
+                st.info(f"Final auth status: {auth_status}, Message: {auth_message}")
+                
+                st.success("QuickBooks authorization successful! You can now use the QuickBooks integration.")
+                
+                # Add a button to continue to the main app
+                if st.button("Continue to Application"):
+                    # Clear the query parameters and reload
+                    st.experimental_set_query_params()
+                    st.rerun()
+                
+                # Skip rendering the rest of the app while processing OAuth
+                st.stop()
+                
+            except Exception as e:
+                st.error(f"OAuth processing failed: {str(e)}")
+                st.info("Please try the authorization process again.")
+                
+                # Add a button to continue to the main app
+                if st.button("Continue to Application"):
+                    # Clear the query parameters and reload
+                    st.experimental_set_query_params()
+                    st.rerun()
+                
+                # Skip rendering the rest of the app while processing OAuth
+                st.stop()
+    
     # Initialize settings update flags
     material_settings_updated = False
     machine_settings_updated = False
@@ -2637,12 +2752,14 @@ def main():
                     
                     st.markdown("""
                     **After authorization:**
-                    1. QuickBooks will redirect to your Redirect URI with a code
-                    2. Copy the entire redirect URL
-                    3. Enter it below to complete the authorization process
+                    1. QuickBooks will redirect back to this application with the authorization code
+                    2. The authorization will be processed automatically
+                    3. You'll see a confirmation message when complete
+                    
+                    If automatic redirect doesn't work, you can manually paste the redirect URL below.
                     """)
                     
-                    auth_code_url = st.text_input("Paste the redirect URL here:")
+                    auth_code_url = st.text_input("Optional: Paste the redirect URL manually if needed:")
                     if auth_code_url and "code=" in auth_code_url:
                         # Extract the authorization code
                         try:
