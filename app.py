@@ -1319,10 +1319,9 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return False, f"Error exporting to QuickBooks: {str(e)}", None, None
 
 def get_quickbooks_auth_url():
-    """Generate QuickBooks authorization URL with improved debugging and reliability
+    """Generate QuickBooks authorization URL with simplified approach
     
-    This version uses the dedicated OAuth server running separately from the Streamlit app.
-    This approach follows standard OAuth practices and is more reliable.
+    This version uses the Replit secrets directly for a more reliable connection
     """
     # Display QuickBooks library status to help with debugging
     print(f"QuickBooks libraries available: {QUICKBOOKS_AVAILABLE}")
@@ -1330,115 +1329,54 @@ def get_quickbooks_auth_url():
         st.error(f"QuickBooks libraries are not available: {QUICKBOOKS_IMPORT_ERROR}")
         return None
     
-    # Log settings retrieval
-    print("Retrieving QuickBooks settings from database...")
-    qb_settings = database.get_quickbooks_settings()
-    
-    # Get the current Replit URL for the correct redirect URI
+    # Use Replit secrets directly for credentials
     import os
-    replit_domain = os.environ.get("REPLIT_DOMAINS")
-    if replit_domain:
-        # Split the comma-separated list and get the first domain
-        replit_domain = replit_domain.split(',')[0].strip()
-    print(f"Replit domain from REPLIT_DOMAINS: {replit_domain}")
+    client_id = os.environ.get("QB_CLIENT_ID")
+    client_secret = os.environ.get("QB_CLIENT_SECRET")
+    redirect_uri = os.environ.get("QB_REDIRECT_URI")
     
-    # Mask sensitive values but show if they exist
-    client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+    # For security, mask the sensitive values in logs
     client_id_masked = f"{client_id[:5]}..." if client_id else None
-    
-    client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
     client_secret_masked = "****" if client_secret else None
     
-    # Create a redirect URI based on the Replit domain
-    # CRITICAL: This must match EXACTLY what's registered in Intuit Developer Dashboard
-    if replit_domain:
-        # IMPORTANT: The redirect URI is now going to point to our OAuth server directly
-        # The OAuth server handles all callback paths (/callback, /api/quickbooks/callback, etc.)
-        
-        # Generate a redirect URI based on the OAuth server path
-        # This ensures the authorization code goes directly to the OAuth server
-        # instead of to Streamlit (which causes the code reuse issue)
-        
-        # For Replit, we use internal networking between the Streamlit app and OAuth server
-        # This ensures the OAuth flow happens in the right order
-        oauth_server_domain = replit_domain
-        default_redirect_uri = f"https://{oauth_server_domain}/callback"
-        
-        print(f"Setting redirect URI to OAuth server: {default_redirect_uri}")
-        
-        # IMPORTANT: The redirect URI in Intuit Developer Dashboard MUST match this!
-        # Go to https://developer.intuit.com/app/developer/dashboard
-        # Select your app -> Development/Production -> Keys & OAuth -> Redirect URI
-        # Add the exact URI printed above with no modifications
-    else:
-        # For local development
-        default_redirect_uri = "http://localhost:5001/callback"  # point to OAuth server port
-    
-    # Always update the redirect URI to match the current Replit domain
-    # This prevents issues when the Replit URL changes between sessions
-    print(f"Setting redirect URI to: {default_redirect_uri}")
-    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect_uri)
-    redirect_uri = default_redirect_uri
-    
-    environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-    
-    # Log the retrieved settings (masked for security)
-    print(f"""QuickBooks settings retrieved:
+    # Log the settings we're using
+    print(f"""Using QuickBooks credentials from Replit secrets:
     - Client ID: {client_id_masked or "Not set"}
     - Client Secret: {client_secret_masked or "Not set"}
     - Redirect URI: {redirect_uri or "Not set"}
-    - Environment: {environment or "Not set"}
+    - Environment: sandbox
     """)
     
-    if not client_id or not redirect_uri:
-        st.error("Missing required settings: Client ID and Redirect URI")
+    # Validate required parameters
+    if not client_id or not client_secret or not redirect_uri:
+        st.error("Missing required QuickBooks credentials in Replit secrets. Please check QB_CLIENT_ID, QB_CLIENT_SECRET, and QB_REDIRECT_URI.")
         return None
     
     try:
-        # Instead of using the Intuit SDK directly, we'll use our OAuth server
-        # This is more reliable and follows standard OAuth practices
-        print("Using OAuth server to generate authorization URL...")
+        # Use the Intuit SDK directly to generate the authorization URL
+        # This is much simpler and more reliable than using a separate OAuth server
+        from intuitlib.client import AuthClient
+        from intuitlib.enums import Scopes
         
-        # Determine the OAuth server URL (localhost in dev, otherwise port 5001 on same host)
-        oauth_server_url = "http://localhost:5001" if not replit_domain else f"http://{replit_domain.split('.')[0]}-5001.{'.'.join(replit_domain.split('.')[1:])}"
+        # Create auth client with credentials from Replit secrets
+        auth_client = AuthClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            environment="sandbox"
+        )
         
-        # In Replit, we need to use the internal network
-        if replit_domain:
-            oauth_server_url = "http://localhost:5001"
+        # Generate the authorization URL with the standard accounting scope
+        auth_url = auth_client.get_authorization_url([Scopes.ACCOUNTING])
+        print(f"Authorization URL generated successfully using direct SDK approach")
         
-        print(f"OAuth server URL: {oauth_server_url}")
+        # Also store credentials in database for use by other functions
+        database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
+        database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
+        database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
+        database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", "sandbox")
         
-        # Make a request to the OAuth server to get the authorization URL
-        import requests
-        import uuid
-        
-        # Generate a state parameter for security
-        state = str(uuid.uuid4())
-        st.session_state['qb_auth_state'] = state
-        
-        auth_endpoint = f"{oauth_server_url}/api/quickbooks/auth"
-        params = {
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'redirect_uri': redirect_uri,
-            'environment': environment
-        }
-        
-        print(f"Requesting authorization URL from: {auth_endpoint}")
-        response = requests.get(auth_endpoint, params=params)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                auth_url = data.get('auth_url')
-                print(f"Authorization URL generated successfully")
-                return auth_url
-            else:
-                st.error(f"OAuth server error: {data.get('error')}")
-                return None
-        else:
-            st.error(f"OAuth server returned status code {response.status_code}")
-            return None
+        return auth_url
             
     except Exception as e:
         st.error(f"Error generating authorization URL: {str(e)}")
@@ -1554,26 +1492,17 @@ def main():
                 # Skip rendering the rest of the app
                 st.stop()
     
-    # Legacy handling for direct OAuth callback (should not be used anymore)
-    # This code should never run with our updated OAuth server, but we're keeping it
-    # as a fallback in case something goes wrong with the server-side flow
+    # Direct OAuth callback handling - this is our primary authentication flow
+    # Now using the Intuit SDK directly with our Replit secrets
     if 'code' in query_params and 'realmId' in query_params:
-        # Create a warning for this case
-        st.warning("""
-        Warning: Using direct OAuth callback flow, which is not recommended.
-        The application is configured to use a dedicated OAuth server to handle the authorization flow.
-        If you're seeing this message, there may be a problem with the OAuth server configuration.
-        """)
-        
         # Create a session key to prevent processing the same OAuth code multiple times
         oauth_processing_key = "oauth_code_" + str(query_params.get('code', [''])[0])
         
         # Only process if we haven't seen this code before
         if oauth_processing_key not in st.session_state:
             st.session_state[oauth_processing_key] = True
-            st.info("OAuth callback detected! Processing authentication...")
+            st.info("QuickBooks OAuth callback detected! Processing authentication...")
             
-            # Rest of the legacy OAuth handling code
             # Check for error parameter in callback
             if 'error' in query_params:
                 error_message = query_params['error'][0]
@@ -1594,33 +1523,83 @@ def main():
                     # Skip rendering the rest of the app while processing OAuth
                     st.stop()
             
-            # Log that we're using the legacy flow
-            st.warning("Using legacy OAuth flow - this is not recommended.")
-            
-            # Get required settings from database
-            qb_settings = database.get_quickbooks_settings()
-            client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
-            client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value')
-            redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
-            environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-            
-            # Extract authorization code and realmId
-            auth_code = query_params['code'][0]
-            realm_id = query_params['realmId'][0]
-            
-            # We no longer pass state to the Intuit authorization URL, so we won't receive it back
-            # However, we'll clear any stored state from the session state
-            if 'qb_auth_state' in st.session_state:
-                st.session_state.pop('qb_auth_state', None)
-            
-            # Rest of the OAuth handling code...
-            # (leaving in place as a fallback, but this shouldn't run with the new server)
-            
-            # Button to continue to main app
-            if st.button("Continue to Application", key="legacy_continue"):
-                # Clear the query parameters and reload
-                st.query_params.clear()
-                st.rerun()
+            try:
+                # Get credentials directly from Replit secrets
+                import os
+                client_id = os.environ.get("QB_CLIENT_ID")
+                client_secret = os.environ.get("QB_CLIENT_SECRET")
+                redirect_uri = os.environ.get("QB_REDIRECT_URI")
+                
+                # Extract authorization code and realmId
+                auth_code = query_params['code'][0]
+                realm_id = query_params['realmId'][0]
+                
+                # Use the Intuit SDK directly to exchange the code for tokens
+                from intuitlib.client import AuthClient
+                from intuitlib.enums import Scopes
+                
+                # Initialize auth client with our credentials
+                auth_client = AuthClient(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    redirect_uri=redirect_uri,
+                    environment="sandbox"
+                )
+                
+                # Exchange the authorization code for tokens
+                st.info("Exchanging authorization code for access tokens...")
+                auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                
+                # Get the tokens from the auth client
+                access_token = auth_client.access_token
+                refresh_token = auth_client.refresh_token
+                
+                # Store in the database for future use
+                database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
+                database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
+                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", "sandbox")
+                
+                # Save tokens with expiration time
+                token_expires_at = time.time() + auth_client.expires_in
+                database.update_quickbooks_token("QB_ACCESS_TOKEN", access_token, token_expires_at)
+                database.update_quickbooks_token("QB_REFRESH_TOKEN", refresh_token)
+                
+                # Display success message
+                st.success("QuickBooks authentication successful! Your account has been connected.")
+                st.write(f"Realm ID: {realm_id}")
+                
+                # Button to continue to main app
+                if st.button("Continue to Application", key="auth_success_continue"):
+                    # Clear the query parameters and reload
+                    st.query_params.clear()
+                    st.rerun()
+                
+            except Exception as e:
+                # Handle any errors during the authentication process
+                import traceback
+                st.error(f"Error during QuickBooks authentication: {str(e)}")
+                st.code(traceback.format_exc())
+                
+                # Button to retry
+                if st.button("Try Again", key="auth_error_retry"):
+                    auth_url = get_quickbooks_auth_url()
+                    if auth_url:
+                        # Store the URL in session state
+                        st.session_state['qb_auth_url'] = auth_url
+                        # Use Javascript to redirect
+                        st.markdown(f"""
+                        <script>
+                            window.top.location.href = '{auth_url}';
+                        </script>
+                        """, unsafe_allow_html=True)
+                        st.info("Redirecting to QuickBooks authorization page...")
+                
+                # Button to continue to main app
+                if st.button("Continue to Application", key="auth_error_continue"):
+                    # Clear the query parameters and reload
+                    st.query_params.clear()
+                    st.rerun()
             
             # Skip rendering the rest of the app
             st.stop()
@@ -3326,9 +3305,6 @@ def main():
         with st.expander("QuickBooks Integration Settings"):
             st.subheader("QuickBooks API Configuration")
             
-            # Get current QuickBooks settings
-            qb_settings = database.get_quickbooks_settings()
-            
             # Authentication status
             auth_status, auth_message = database.get_quickbooks_auth_status()
             
@@ -3347,83 +3323,71 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # Standard OAuth approach explanation
+            # Simplified Replit approach explanation
             st.markdown("""
-            ### 📋 Standard OAuth Connection
+            ### 📋 Simplified QuickBooks Connection
             
-            This application uses a secure backend OAuth service to properly connect with QuickBooks:
+            This application uses Replit Secrets to securely connect with QuickBooks:
             
-            1. Enter your QuickBooks developer credentials below
-            2. Save your settings
-            3. Click "Connect to QuickBooks" 
-            4. You'll be redirected to QuickBooks to authorize
-            5. After authorization, you'll be redirected back automatically
+            1. Your QuickBooks credentials are stored as Replit Secrets
+            2. Click "Connect to QuickBooks" below
+            3. You'll be redirected to QuickBooks to authorize
+            4. After authorization, you'll be redirected back automatically
             
-            This standard approach follows best practices for OAuth2 authentication.
+            This approach is simpler and more reliable than traditional OAuth flows.
             """)
             
-            # Create columns for the form
+            # Get the current secrets
+            import os
+            client_id = os.environ.get("QB_CLIENT_ID", "")
+            client_secret = os.environ.get("QB_CLIENT_SECRET", "")
+            redirect_uri = os.environ.get("QB_REDIRECT_URI", "")
+            
+            # Create columns for the display
             col1, col2 = st.columns(2)
             
             with col1:
-                # Environment selection
-                environment = st.selectbox(
-                    "Environment",
-                    options=["sandbox", "production"],
-                    index=0 if qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox') == 'sandbox' else 1,
-                    help="Select 'sandbox' for testing or 'production' for live integration"
-                )
-                
-                # Client ID
-                client_id = st.text_input(
-                    "Client ID", 
-                    value=qb_settings.get('QB_CLIENT_ID', {}).get('value', ''),
-                    help="QuickBooks API Client ID from Intuit Developer dashboard"
-                )
-                
-                # Client Secret
-                client_secret = st.text_input(
-                    "Client Secret", 
-                    value=qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''),
-                    type="password",
-                    help="QuickBooks API Client Secret from Intuit Developer dashboard"
-                )
-                
-                # Auto-detect the current Replit URL
-                import os
-                replit_domain = os.environ.get("REPLIT_DOMAINS", "")
-                if replit_domain:
-                    # Split the comma-separated list and get the first domain
-                    replit_domain = replit_domain.split(',')[0].strip()
-                print(f"Replit domain from REPLIT_DOMAINS: {replit_domain}")
-                default_redirect = f"https://{replit_domain}" if replit_domain else "http://localhost:5000"
-                
-                # OAuth server URL - use internal network in Replit environment
-                oauth_server_url = "http://localhost:5001"  # Direct connection in same container
-                
-                # The redirect URI registered in the Intuit Developer Dashboard
-                # This MUST match exactly what's registered in your Intuit Developer Dashboard
-                callback_uri = f"https://{replit_domain}/callback" if replit_domain else "http://localhost:5000/callback"
-                print(f"Using callback URI for OAuth: {callback_uri}")
-                
-                # Show redirect URI info
-                st.markdown("""
-                ### Important Redirect URI Information
-                
-                For QuickBooks OAuth to work properly, you must configure these URIs in your Intuit Developer Dashboard:
-                """)
-                
-                st.code(f"{callback_uri}", language="text")
-                st.code(f"{default_redirect}", language="text")
-                
-                st.markdown("""
-                The first URI is for the callback during authorization, and the second is your application's base URL.
-                """)
+                # Display information about the current settings
+                if client_id:
+                    masked_client_id = f"{client_id[:5]}..." if len(client_id) > 5 else "Set"
+                    st.success(f"Client ID: {masked_client_id}")
+                else:
+                    st.error("Client ID: Not set")
+                    
+                if client_secret:
+                    st.success("Client Secret: Set")
+                else:
+                    st.error("Client Secret: Not set")
+                    
+                if redirect_uri:
+                    st.success(f"Redirect URI: {redirect_uri}")
+                else:
+                    st.error("Redirect URI: Not set")
+                    
+                # Environment is fixed to sandbox for simplicity
+                st.info("Environment: sandbox (fixed)")
+            
+            # Important note about Replit secrets
+            st.markdown("""
+            ### Important Note
+            
+            Your QuickBooks credentials are stored securely as Replit Secrets.
+            To update these credentials, go to:
+            1. Tools > Secrets
+            2. Add or update the following secrets:
+               - QB_CLIENT_ID
+               - QB_CLIENT_SECRET
+               - QB_REDIRECT_URI
+            
+            The redirect URI must match exactly what's registered in your Intuit Developer Dashboard.
+            """)
             
             with col2:
                 # Token information display
                 if auth_status:
-                    access_token_info = qb_settings.get('QB_ACCESS_TOKEN', {})
+                    # Get settings from database to check token status
+                    db_settings = database.get_quickbooks_settings()
+                    access_token_info = db_settings.get('QB_ACCESS_TOKEN', {})
                     if access_token_info and 'expires_at' in access_token_info and access_token_info['expires_at']:
                         import time
                         try:
@@ -3438,7 +3402,8 @@ def main():
                             st.warning("⚠️ Invalid token expiration format")
                 
                 # Realm ID display if available
-                realm_id = qb_settings.get('QB_REALM_ID', {}).get('value', '')
+                db_settings = database.get_quickbooks_settings()
+                realm_id = db_settings.get('QB_REALM_ID', {}).get('value', '')
                 if realm_id:
                     st.success(f"✅ Connected to QuickBooks company ID: {realm_id}")
                     
@@ -3470,11 +3435,12 @@ def main():
             with button_col1:
                 save_button = st.button("Save QuickBooks Settings", type="primary")
                 if save_button:
-                    # Update settings in database
+                    # Note: Settings are already stored in Replit secrets
+                    # Just update settings in database for compatibility with other functions
                     database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
                     database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
-                    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect)
-                    database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
+                    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
+                    database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", "sandbox")
                     
                     st.success("QuickBooks settings saved successfully!")
                     st.info("The page will refresh in 2 seconds...")
@@ -3488,15 +3454,13 @@ def main():
             
             # Connect to QuickBooks button
             with button_col2:
-                import requests
-                
-                # Help text container about Intuit redirect URIs - use info box instead of expander
+                # Help text container about Intuit redirect URIs
                 st.info(f"""
                 ⚠️ **Having trouble connecting?** 
                 
                 Make sure your Intuit Developer Dashboard has the exact redirect URI:
                 ```
-                {default_redirect}
+                {redirect_uri}
                 ```
                 
                 See QUICKBOOKS_OAUTH_SETUP.md for help.
@@ -3509,20 +3473,10 @@ def main():
                 if connect_button:
                     with st.spinner("Preparing QuickBooks authorization..."):
                         try:
-                            # Call the OAuth service to get an authorization URL
-                            params = {
-                                'client_id': client_id,
-                                'client_secret': client_secret,
-                                'redirect_uri': callback_uri,  # Use the correct callback URI
-                                'environment': environment
-                            }
+                            # Use our simplified function to get the auth URL directly
+                            auth_url = get_quickbooks_auth_url()
                             
-                            response = requests.get(f"{oauth_server_url}/api/quickbooks/auth", params=params)
-                            
-                            if response.status_code == 200 and response.json().get('success'):
-                                auth_data = response.json()
-                                auth_url = auth_data['auth_url']
-                                
+                            if auth_url:
                                 st.success("Authorization URL generated successfully!")
                                 st.info("You will be redirected to QuickBooks for authorization...")
                                 
@@ -3549,11 +3503,11 @@ def main():
                                 </script>
                                 """, unsafe_allow_html=True)
                             else:
-                                error_msg = response.json().get('error', 'Unknown error')
-                                st.error(f"Failed to generate authorization URL: {error_msg}")
+                                st.error("Failed to generate authorization URL. Please check your settings.")
                         except Exception as e:
-                            st.error(f"Error connecting to OAuth service: {str(e)}")
-                            st.info("Please make sure the OAuth server is running on port 5001")
+                            st.error(f"Error connecting to QuickBooks: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
             
             # Test connection button
             with button_col3:
