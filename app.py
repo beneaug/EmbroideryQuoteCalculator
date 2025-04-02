@@ -892,36 +892,58 @@ def get_quickbooks_client():
                     redirect_uri=redirect_uri
                 )
                 
-                # Refresh the token
-                print("  - Calling refresh with current refresh token")
-                intuit_auth_client.refresh(refresh_token=refresh_token)
-                
-                # Get the new tokens
-                access_token = intuit_auth_client.access_token
-                refresh_token = intuit_auth_client.refresh_token
-                expires_in = intuit_auth_client.expires_in
-                
-                # Calculate expiration time
-                token_expiration = time.time() + expires_in
-                
-                # Update tokens in database
-                print("  - Storing new tokens in database")
-                database.update_quickbooks_token(
-                    'QB_ACCESS_TOKEN', 
-                    access_token,
-                    token_expiration
-                )
-                database.update_quickbooks_token(
-                    'QB_REFRESH_TOKEN', 
-                    refresh_token
-                )
-                
-                print(f"  - Token refresh successful, new expiration: {time.ctime(token_expiration)}")
+                # Refresh the token with enhanced error handling
+                try:
+                    print("  - Calling refresh with current refresh token")
+                    intuit_auth_client.refresh(refresh_token=refresh_token)
+                    
+                    # Get the new tokens
+                    access_token = intuit_auth_client.access_token
+                    refresh_token = intuit_auth_client.refresh_token
+                    expires_in = intuit_auth_client.expires_in
+                    
+                    # Calculate expiration time
+                    token_expiration = time.time() + expires_in
+                    
+                    # Update tokens in database
+                    print("  - Storing new tokens in database")
+                    database.update_quickbooks_token(
+                        'QB_ACCESS_TOKEN', 
+                        access_token,
+                        token_expiration
+                    )
+                    database.update_quickbooks_token(
+                        'QB_REFRESH_TOKEN', 
+                        refresh_token
+                    )
+                    
+                    print(f"  - Token refresh successful, new expiration: {time.ctime(token_expiration)}")
+                    
+                except Exception as refresh_specific_error:
+                    # Check for specific error types that indicate we need a full reauthorization
+                    error_str = str(refresh_specific_error).lower()
+                    
+                    if "invalid_grant" in error_str or "token" in error_str and "expired" in error_str:
+                        print("  - Refresh token expired or invalid, need full reauthorization")
+                        # Return specialized error for the UI to handle
+                        return None, "QuickBooks token expired. Please re-authorize the application."
+                    else:
+                        # For other errors, rethrow to be caught by general handler
+                        raise refresh_specific_error
                 
             except Exception as refresh_error:
                 print(f"ERROR during token refresh: {str(refresh_error)}")
                 import traceback
                 print(traceback.format_exc())
+                
+                # Reset tokens since they may be invalid
+                try:
+                    database.reset_quickbooks_auth()
+                    print("  - Reset all tokens due to refresh error")
+                except:
+                    # Just log if this fails, don't add another exception
+                    print("  - Warning: Failed to reset tokens after refresh error")
+                
                 return None, f"Error refreshing QuickBooks token: {str(refresh_error)}"
         
         # Initialize the session manager with our tokens
@@ -983,12 +1005,24 @@ def get_quickbooks_client():
         return None, f"Error initializing QuickBooks client: {str(e)}\n{error_details}"
 
 def export_to_quickbooks(design_info, job_inputs, cost_results):
-    """Export quote as an estimate to QuickBooks"""
+    """Export quote as an estimate to QuickBooks with enhanced error handling and state preservation"""
+    # Make defensive copies of all input data to avoid state issues
+    import copy
+    design_info = copy.deepcopy(design_info) if design_info else {}
+    job_inputs = copy.deepcopy(job_inputs) if job_inputs else {}
+    cost_results = copy.deepcopy(cost_results) if cost_results else {}
+    
+    # Check QuickBooks availability
     if not QUICKBOOKS_AVAILABLE:
         return False, "QuickBooks integration is not available. Please install the required libraries."
     
-    # Get QuickBooks client with better logging
+    # Debug info to aid in troubleshooting
     print(f"\n\n===== QUICKBOOKS EXPORT STARTED =====")
+    print(f"Design info: {len(design_info)} fields")
+    print(f"Job inputs: {len(job_inputs)} fields")
+    print(f"Cost results: {len(cost_results)} fields")
+    
+    # Get QuickBooks client with better logging
     print(f"Step 1: Getting QuickBooks client...")
     client, error = get_quickbooks_client()
     if not client:
@@ -1099,13 +1133,41 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
             print(f"Setting customer reference to ID: {customer.Id}")
             estimate.CustomerRef = customer.to_ref()
             
-            # Add job details to memo with proper formatting
+            # Add comprehensive job details to memo with proper formatting
             job_name = job_inputs.get("job_name", "Embroidery Job")
             stitch_count = design_info.get('stitch_count', 0)
             color_count = job_inputs.get('color_count', 1)
-            memo_text = f"Embroidery Job: {job_name} - {stitch_count:,} stitches, {color_count} colors"
+            garment_type = job_inputs.get('garment_type', 'Garment')
+            quantity = job_inputs.get('quantity', 1)
+            file_name = design_info.get('file_name', 'Custom design')
+            placement = job_inputs.get('placement', 'Standard placement')
+            use_foam = job_inputs.get('use_foam', False)
+            foam_text = "3D Foam" if use_foam else "Flat Embroidery"
+            
+            # Create a detailed memo that will display prominently in QuickBooks
+            memo_text = (
+                f"Embroidery Job: {job_name}\n"
+                f"File: {file_name}\n"
+                f"Specs: {stitch_count:,} stitches, {color_count} colors, {foam_text}\n"
+                f"Garment: {garment_type}, {quantity} pieces\n"
+                f"Placement: {placement}"
+            )
             print(f"Setting memo: {memo_text}")
             estimate.CustomerMemo = {"value": memo_text}
+            
+            # Also set the PrintStatus to ensure it's ready to view in QuickBooks
+            estimate.PrintStatus = "NeedToPrint"
+            
+            # Add a delivery date based on production time
+            import datetime
+            prod_time_hours = cost_results.get('production_time_hours', 24)
+            # Convert to business days (assuming 8-hour workday)
+            prod_days = max(1, round(prod_time_hours / 8))
+            # Calculate the estimated delivery date (business days from now)
+            today = datetime.date.today()
+            delivery_date = today + datetime.timedelta(days=(prod_days + 1))  # Add 1 day for delivery
+            # Format date for QuickBooks
+            estimate.DeliveryDate = delivery_date.strftime("%Y-%m-%d")
             
             # Step 6: Get or create service item
             print(f"Step 6: Finding or creating service item...")
@@ -1155,13 +1217,23 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                 print(f"Step 7: Creating line item...")
                 line = SalesItemLine()
                 
-                # Format the description properly with more details
+                # Format the description properly with more details for better QuickBooks reporting
                 quantity = job_inputs.get('quantity', 1)
                 stitch_count = design_info.get('stitch_count', 0)
                 garment_type = job_inputs.get('garment_type', 'Garment')
                 placement = job_inputs.get('placement', 'Standard placement')
+                job_name = job_inputs.get('job_name', 'Embroidery Job')
+                file_name = design_info.get('file_name', 'Custom design')
+                color_count = job_inputs.get('color_count', 1)
+                use_foam = job_inputs.get('use_foam', False)
+                foam_text = "3D Foam" if use_foam else "Flat Embroidery"
                 
-                line.Description = f"Embroidery services - {quantity} pieces, {stitch_count:,} stitches. {garment_type}, {placement}"
+                # Create a detailed item description that will show up in QuickBooks reports
+                line.Description = (
+                    f"Embroidery: {job_name} - {file_name}\n"
+                    f"{quantity} pieces, {stitch_count:,} stitches, {color_count} colors\n"
+                    f"{garment_type}, {placement}, {foam_text}"
+                )
                 
                 # Set amounts as strings to avoid precision issues
                 total_cost = float(cost_results['total_job_cost'])
@@ -1220,7 +1292,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return False, f"Error exporting to QuickBooks: {str(e)}"
 
 def get_quickbooks_auth_url():
-    """Generate QuickBooks authorization URL with improved debugging"""
+    """Generate QuickBooks authorization URL with improved debugging and reliability"""
     # Display QuickBooks library status to help with debugging
     st.info(f"QuickBooks libraries available: {QUICKBOOKS_AVAILABLE}")
     if not QUICKBOOKS_AVAILABLE:
@@ -1249,14 +1321,16 @@ def get_quickbooks_auth_url():
     else:
         default_redirect_uri = "http://localhost:5000"
     
-    redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', default_redirect_uri)
-    environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-    
-    # Update the redirect URI in the database if it's using the default
-    if qb_settings.get('QB_REDIRECT_URI', {}).get('value') != default_redirect_uri and replit_domain:
-        st.info(f"Updating redirect URI to {default_redirect_uri}")
+    # Always update the redirect URI to match the current Replit domain
+    # This prevents issues when the Replit URL changes between sessions
+    if replit_domain:
+        st.info(f"Setting redirect URI to current Replit domain: {default_redirect_uri}")
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect_uri)
         redirect_uri = default_redirect_uri
+    else:
+        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', default_redirect_uri)
+    
+    environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
     
     # Log the retrieved settings (masked for security)
     st.info(f"""QuickBooks settings retrieved:
@@ -1279,6 +1353,11 @@ def get_quickbooks_auth_url():
         # Log the available scopes for debugging
         st.info(f"Available scopes: {[s.name for s in Scopes]}")
         
+        # Reset the tokens before starting a new authorization flow
+        # This prevents issues with trying to reuse expired tokens
+        st.info("Resetting previous OAuth tokens to ensure clean authentication...")
+        database.reset_quickbooks_auth()
+        
         # Initialize the Intuit auth client
         st.info("Initializing Intuit Auth Client...")
         intuit_auth_client = IntuitAuthClient(
@@ -1292,9 +1371,15 @@ def get_quickbooks_auth_url():
         st.info("Setting authorization scopes...")
         scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
         
-        # Get the authorization URL
-        st.info("Generating authorization URL...")
-        auth_url = intuit_auth_client.get_authorization_url(scopes)
+        # Get the authorization URL with state parameter for security
+        # State helps prevent CSRF attacks and can be used to verify the response
+        import uuid
+        state = str(uuid.uuid4())
+        st.session_state['qb_auth_state'] = state
+        
+        # Get the authorization URL with state
+        st.info(f"Generating authorization URL with state: {state[:8]}...")
+        auth_url = intuit_auth_client.get_authorization_url(scopes, state=state)
         
         # Log success and partial URL (for security)
         if auth_url:
@@ -1346,6 +1431,26 @@ def main():
     if 'code' in query_params and 'realmId' in query_params:
         st.info("OAuth callback detected! Processing authentication...")
         
+        # Check for error parameter in callback
+        if 'error' in query_params:
+            error_message = query_params['error'][0]
+            error_description = query_params.get('error_description', ['Unknown error'])[0]
+            
+            with st.container():
+                st.write("### QuickBooks Authentication Error")
+                st.error(f"OAuth processing failed: {error_message}")
+                st.error(f"Error details: {error_description}")
+                st.info("Please try the authorization process again.")
+                
+                # Add a button to continue to the main app
+                if st.button("Continue to Application"):
+                    # Clear the query parameters and reload
+                    st.query_params.clear()
+                    st.rerun()
+                
+                # Skip rendering the rest of the app while processing OAuth
+                st.stop()
+        
         # Get required settings from database
         qb_settings = database.get_quickbooks_settings()
         client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
@@ -1357,12 +1462,31 @@ def main():
         auth_code = query_params['code'][0]
         realm_id = query_params['realmId'][0]
         
+        # Verify state parameter if present
+        expected_state = st.session_state.get('qb_auth_state', None)
+        received_state = query_params.get('state', [None])[0]
+        
         # Add a container to show processing steps
         with st.container():
             st.write("### QuickBooks Authentication Processing")
             st.info(f"Authorization code received: {auth_code[:5]}...")
             st.info(f"Realm ID received: {realm_id}")
             
+            # Validate state if present (security check)
+            if expected_state and received_state and expected_state != received_state:
+                st.error(f"State validation failed. Expected: {expected_state[:8]}..., Received: {received_state[:8]}...")
+                st.error("This could indicate a security issue. Please try the authorization process again.")
+                
+                # Add a button to continue to the main app
+                if st.button("Continue to Application"):
+                    # Clear the query parameters and session state auth data
+                    st.session_state.pop('qb_auth_state', None)
+                    st.query_params.clear()
+                    st.rerun()
+                
+                # Skip rendering the rest of the app while processing OAuth
+                st.stop()
+                
             try:
                 # We need to import these here
                 from intuitlib.client import AuthClient as IntuitAuthClient
@@ -1377,10 +1501,36 @@ def main():
                     redirect_uri=redirect_uri
                 )
                 
-                # Exchange code for tokens
-                st.info("Exchanging authorization code for tokens...")
-                scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
-                intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                # Exchange code for tokens with additional error handling
+                try:
+                    st.info("Exchanging authorization code for tokens...")
+                    scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
+                    intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                except Exception as token_error:
+                    # Special handling for auth code errors - more user-friendly
+                    import traceback
+                    error_details = traceback.format_exc()
+                    st.error(f"OAuth processing failed: {str(token_error)}")
+                    st.error("The authorization code may have expired or already been used.")
+                    
+                    with st.expander("Error Details"):
+                        st.code(error_details)
+                    
+                    # Get a fresh authorization URL for the user
+                    auth_url = get_quickbooks_auth_url()
+                    
+                    if auth_url:
+                        st.info("Please try the authorization process again:")
+                        st.markdown(f'<a href="{auth_url}" target="_self" style="display: inline-block; background-color: #00A09D; color: white; padding: 0.5rem 1rem; text-decoration: none; border-radius: 5px; font-weight: bold;">Reconnect to QuickBooks</a>', unsafe_allow_html=True)
+                    
+                    # Add a button to continue to the main app
+                    if st.button("Continue to Application"):
+                        # Clear the query parameters and reload
+                        st.query_params.clear()
+                        st.rerun()
+                    
+                    # Skip rendering the rest of the app while processing OAuth
+                    st.stop()
                 
                 # Update realm_id in database
                 db_result = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
@@ -1413,6 +1563,10 @@ def main():
                 auth_status, auth_message = database.get_quickbooks_auth_status()
                 st.info(f"Final auth status: {auth_status}, Message: {auth_message}")
                 
+                # Clear the auth state from session
+                if 'qb_auth_state' in st.session_state:
+                    del st.session_state['qb_auth_state']
+                
                 st.success("QuickBooks authorization successful! You can now use the QuickBooks integration.")
                 
                 # Add a button to continue to the main app
@@ -1425,12 +1579,27 @@ def main():
                 st.stop()
                 
             except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
                 st.error(f"OAuth processing failed: {str(e)}")
+                
+                # Show detailed error to help with debugging
+                with st.expander("Error Details"):
+                    st.code(error_details)
+                
                 st.info("Please try the authorization process again.")
+                
+                # Get a fresh authorization URL for the user
+                auth_url = get_quickbooks_auth_url()
+                
+                if auth_url:
+                    st.markdown(f'<a href="{auth_url}" target="_self" style="display: inline-block; background-color: #00A09D; color: white; padding: 0.5rem 1rem; text-decoration: none; border-radius: 5px; font-weight: bold;">Reconnect to QuickBooks</a>', unsafe_allow_html=True)
                 
                 # Add a button to continue to the main app
                 if st.button("Continue to Application"):
-                    # Clear the query parameters and reload
+                    # Clear the query parameters and session state
+                    if 'qb_auth_state' in st.session_state:
+                        del st.session_state['qb_auth_state']
                     st.query_params.clear()
                     st.rerun()
                 
@@ -2463,20 +2632,30 @@ def main():
                                         
                                         # Add a more attractive button-style link
                                         status_placeholder.markdown(f"""
-                                        <a href="{estimate_url}" target="_blank" style="
-                                            display: inline-block;
-                                            background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
-                                            color: white;
-                                            padding: 8px 16px;
-                                            border-radius: 8px;
-                                            text-decoration: none;
-                                            font-weight: bold;
-                                            margin-top: 10px;
-                                            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-                                        ">
-                                            <span style="vertical-align: middle;">View Estimate in QuickBooks</span>
-                                            <span style="vertical-align: middle; margin-left: 5px;">↗</span>
-                                        </a>
+                                        <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
+                                            <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
+                                            <a href="{estimate_url}" target="_blank" style="
+                                                display: inline-flex;
+                                                align-items: center;
+                                                background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
+                                                color: white;
+                                                padding: 10px 20px;
+                                                border-radius: 8px;
+                                                text-decoration: none;
+                                                font-weight: bold;
+                                                margin-top: 5px;
+                                                box-shadow: 0px 3px 6px rgba(0,0,0,0.2);
+                                                transition: all 0.2s ease;
+                                            ">
+                                                <span style="margin-right: 8px;">View in QuickBooks</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                                    <polyline points="15 3 21 3 21 9"></polyline>
+                                                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                                                </svg>
+                                            </a>
+                                            <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
+                                        </div>
                                         """, unsafe_allow_html=True)
                                     else:
                                         status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
@@ -2592,22 +2771,32 @@ def main():
                                         base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
                                         estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
                                         
-                                        # Add a styled button link
+                                        # Add a styled button link with improved design
                                         status_history_placeholder.markdown(f"""
-                                        <a href="{estimate_url}" target="_blank" style="
-                                            display: inline-block;
-                                            background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
-                                            color: white;
-                                            padding: 8px 16px;
-                                            border-radius: 8px;
-                                            text-decoration: none;
-                                            font-weight: bold;
-                                            margin-top: 10px;
-                                            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-                                        ">
-                                            <span style="vertical-align: middle;">View Estimate in QuickBooks</span>
-                                            <span style="vertical-align: middle; margin-left: 5px;">↗</span>
-                                        </a>
+                                        <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
+                                            <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
+                                            <a href="{estimate_url}" target="_blank" style="
+                                                display: inline-flex;
+                                                align-items: center;
+                                                background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
+                                                color: white;
+                                                padding: 10px 20px;
+                                                border-radius: 8px;
+                                                text-decoration: none;
+                                                font-weight: bold;
+                                                margin-top: 5px;
+                                                box-shadow: 0px 3px 6px rgba(0,0,0,0.2);
+                                                transition: all 0.2s ease;
+                                            ">
+                                                <span style="margin-right: 8px;">View in QuickBooks</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                                    <polyline points="15 3 21 3 21 9"></polyline>
+                                                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                                                </svg>
+                                            </a>
+                                            <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
+                                        </div>
                                         """, unsafe_allow_html=True)
                                 else:
                                     status_history_placeholder.error(f"Failed to export to QuickBooks: {message}")
@@ -2673,20 +2862,30 @@ def main():
                                             
                                             # Add a more attractive button-style link (matching the main export button style)
                                             status_history_placeholder.markdown(f"""
-                                            <a href="{estimate_url}" target="_blank" style="
-                                                display: inline-block;
-                                                background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
-                                                color: white;
-                                                padding: 8px 16px;
-                                                border-radius: 8px;
-                                                text-decoration: none;
-                                                font-weight: bold;
-                                                margin-top: 10px;
-                                                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-                                            ">
-                                                <span style="vertical-align: middle;">View Estimate in QuickBooks</span>
-                                                <span style="vertical-align: middle; margin-left: 5px;">↗</span>
-                                            </a>
+                                            <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
+                                                <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
+                                                <a href="{estimate_url}" target="_blank" style="
+                                                    display: inline-flex;
+                                                    align-items: center;
+                                                    background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
+                                                    color: white;
+                                                    padding: 10px 20px;
+                                                    border-radius: 8px;
+                                                    text-decoration: none;
+                                                    font-weight: bold;
+                                                    margin-top: 5px;
+                                                    box-shadow: 0px 3px 6px rgba(0,0,0,0.2);
+                                                    transition: all 0.2s ease;
+                                                ">
+                                                    <span style="margin-right: 8px;">View in QuickBooks</span>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                                        <polyline points="15 3 21 3 21 9"></polyline>
+                                                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                                                    </svg>
+                                                </a>
+                                                <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
+                                            </div>
                                             """, unsafe_allow_html=True)
                                         else:
                                             status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")

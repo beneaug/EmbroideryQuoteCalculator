@@ -356,83 +356,109 @@ def get_quickbooks_settings():
         return {}
         
 def update_quickbooks_token(token_type, token_value, token_expires_at=None):
-    """Update a QuickBooks token in the database with enhanced error handling"""
+    """Update a QuickBooks token in the database with enhanced error handling and reliability"""
+    # Safeguard against empty tokens
+    if not token_value:
+        print(f"Warning: Attempted to save empty {token_type} token. Ignoring request.")
+        return False
+        
     # Print debug information (sanitized)
     value_preview = f"{token_value[:10]}..." if token_value and len(token_value) > 10 else "None"
     print(f"Updating QuickBooks token: {token_type}, Value: {value_preview}, Expires: {token_expires_at}")
     
     try:
+        # Format token_expires_at if it's a timestamp (epoch seconds)
+        if token_expires_at and isinstance(token_expires_at, (int, float)):
+            from datetime import datetime
+            # Convert from epoch seconds to datetime
+            token_expires_dt = datetime.fromtimestamp(token_expires_at)
+            print(f"Converting expiration from timestamp {token_expires_at} to datetime: {token_expires_dt}")
+            token_expires_at = token_expires_dt
+            
         with get_connection() as conn:
-            # First check if the row exists
-            check_query = "SELECT COUNT(*) FROM quickbooks_settings WHERE name = :name"
-            result = conn.execute(text(check_query), {"name": token_type})
-            count = result.scalar()
-            
-            if count == 0:
-                print(f"No record found for {token_type}, will insert instead of update")
-                # Insert a new row if it doesn't exist
-                insert_query = """
-                INSERT INTO quickbooks_settings 
-                (name, value, description, token_expires_at, created_at, updated_at)
-                VALUES 
-                (:name, :value, :description, :token_expires_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """
+            try:
+                # First check if the row exists
+                check_query = "SELECT COUNT(*) FROM quickbooks_settings WHERE name = :name"
+                result = conn.execute(text(check_query), {"name": token_type})
+                count = result.scalar()
                 
-                description = f"QuickBooks API {token_type.replace('QB_', '')}"
-                
-                params = {
-                    "name": token_type,
-                    "value": token_value,
-                    "description": description,
-                    "token_expires_at": token_expires_at
-                }
-                
-                conn.execute(text(insert_query), params)
-            else:
-                # Update existing row
-                if token_expires_at:
-                    query = """
-                    UPDATE quickbooks_settings 
-                    SET value = :value, 
-                        token_expires_at = :token_expires_at,
-                        updated_at = CURRENT_TIMESTAMP 
-                    WHERE name = :name
+                if count == 0:
+                    print(f"No record found for {token_type}, will insert instead of update")
+                    # Insert a new row if it doesn't exist
+                    insert_query = """
+                    INSERT INTO quickbooks_settings 
+                    (name, value, description, token_expires_at, created_at, updated_at)
+                    VALUES 
+                    (:name, :value, :description, :token_expires_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """
-                    print(f"Executing update with expiration: {token_type}")
-                    conn.execute(text(query), {
-                        "value": token_value,
+                    
+                    description = f"QuickBooks API {token_type.replace('QB_', '')}"
+                    
+                    params = {
                         "name": token_type,
-                        "token_expires_at": token_expires_at
-                    })
-                else:
-                    query = """
-                    UPDATE quickbooks_settings 
-                    SET value = :value, 
-                        updated_at = CURRENT_TIMESTAMP 
-                    WHERE name = :name
-                    """
-                    print(f"Executing update without expiration: {token_type}")
-                    conn.execute(text(query), {
                         "value": token_value,
-                        "name": token_type
-                    })
-            
-            # Explicitly commit the transaction
-            conn.commit()
-            print(f"Token {token_type} saved successfully")
-            
-            # Verify the token was actually saved
-            verify_query = "SELECT value FROM quickbooks_settings WHERE name = :name"
-            verify_result = conn.execute(text(verify_query), {"name": token_type})
-            saved_value = verify_result.scalar()
-            saved_preview = f"{saved_value[:10]}..." if saved_value and len(saved_value) > 10 else "None"
-            print(f"Verification - {token_type} value in database: {saved_preview}")
-            
-            return True
-    except SQLAlchemyError as e:
-        error_msg = f"Database error saving {token_type}: {str(e)}"
+                        "description": description,
+                        "token_expires_at": token_expires_at
+                    }
+                    
+                    conn.execute(text(insert_query), params)
+                else:
+                    # Update existing row
+                    if token_expires_at:
+                        query = """
+                        UPDATE quickbooks_settings 
+                        SET value = :value, 
+                            token_expires_at = :token_expires_at,
+                            updated_at = CURRENT_TIMESTAMP 
+                        WHERE name = :name
+                        """
+                        print(f"Executing update with expiration: {token_type}")
+                        conn.execute(text(query), {
+                            "value": token_value,
+                            "name": token_type,
+                            "token_expires_at": token_expires_at
+                        })
+                    else:
+                        query = """
+                        UPDATE quickbooks_settings 
+                        SET value = :value, 
+                            updated_at = CURRENT_TIMESTAMP 
+                        WHERE name = :name
+                        """
+                        print(f"Executing update without expiration: {token_type}")
+                        conn.execute(text(query), {
+                            "value": token_value,
+                            "name": token_type
+                        })
+                
+                # Explicitly commit the transaction
+                conn.commit()
+                print(f"Token {token_type} saved successfully")
+                
+                # Verify the token was actually saved
+                verify_query = "SELECT value FROM quickbooks_settings WHERE name = :name"
+                verify_result = conn.execute(text(verify_query), {"name": token_type})
+                saved_value = verify_result.scalar()
+                saved_preview = f"{saved_value[:10]}..." if saved_value and len(saved_value) > 10 else "None"
+                print(f"Verification - {token_type} value in database: {saved_preview}")
+                
+                return True
+                
+            except SQLAlchemyError as sql_err:
+                # Handle SQL errors with proper transaction management
+                conn.rollback()
+                error_msg = f"SQL error saving {token_type}: {str(sql_err)}"
+                print(error_msg)
+                import traceback
+                print(traceback.format_exc())
+                return False
+                
+    except Exception as e:
+        # Handle general exceptions
+        error_msg = f"Unexpected error saving {token_type}: {str(e)}"
         print(error_msg)
-        st.error(error_msg)
+        import traceback
+        print(traceback.format_exc())
         return False
 
 def reset_quickbooks_auth():
@@ -457,17 +483,49 @@ def reset_quickbooks_auth():
         return False
 
 def get_quickbooks_auth_status():
-    """Check if QuickBooks authorization is valid and not expired with enhanced debugging"""
+    """Check if QuickBooks authorization is valid and not expired with enhanced debugging and reliability"""
     try:
         print("Checking QuickBooks authentication status...")
         
-        # Get connection
+        # Get connection with retry
         conn = get_connection()
         if not conn:
             print("Failed to get database connection")
             return False, "Database connection failed"
             
         try:
+            # Check for required settings (client ID, client secret, realm ID)
+            settings_query = """
+            SELECT name, value
+            FROM quickbooks_settings
+            WHERE name IN ('QB_CLIENT_ID', 'QB_CLIENT_SECRET', 'QB_REALM_ID')
+            """
+            settings_result = conn.execute(text(settings_query))
+            settings = {row[0]: row[1] for row in settings_result.fetchall()}
+            
+            has_client_id = 'QB_CLIENT_ID' in settings and settings['QB_CLIENT_ID']
+            has_client_secret = 'QB_CLIENT_SECRET' in settings and settings['QB_CLIENT_SECRET']
+            has_realm_id = 'QB_REALM_ID' in settings and settings['QB_REALM_ID']
+            
+            print(f"QuickBooks settings check:")
+            print(f"  - Client ID present: {has_client_id}")
+            print(f"  - Client Secret present: {has_client_secret}")
+            print(f"  - Realm ID present: {has_realm_id}")
+            
+            # Check for missing required settings
+            missing_settings = []
+            if not has_client_id:
+                missing_settings.append("Client ID")
+            if not has_client_secret:
+                missing_settings.append("Client Secret")
+            if not has_realm_id:
+                missing_settings.append("Realm ID")
+                
+            if missing_settings:
+                error_msg = f"Missing QuickBooks settings: {', '.join(missing_settings)}"
+                print(error_msg)
+                return False, error_msg
+                
             # Check for access token
             access_query = """
             SELECT value, token_expires_at 
@@ -493,13 +551,36 @@ def get_quickbooks_auth_status():
             print(f"Access token present: {has_access_token}")
             print(f"Refresh token present: {has_refresh_token}")
             
+            # Check expiration time if present
+            expiration_time_valid = False
+            time_left_minutes = -1
+            
             if access_row and access_row[1]:
-                expiration = access_row[1]
+                # Handle both epoch timestamp and datetime objects
+                if isinstance(access_row[1], (int, float)):
+                    expiration = float(access_row[1])
+                else:
+                    # Try to convert datetime to timestamp
+                    try:
+                        expiration = access_row[1].timestamp()
+                    except (AttributeError, TypeError):
+                        # If conversion fails, try to parse as string
+                        try:
+                            from datetime import datetime
+                            expiration = datetime.fromisoformat(str(access_row[1])).timestamp()
+                        except (ValueError, TypeError):
+                            # Last resort fallback
+                            print(f"Warning: Could not parse expiration time format: {type(access_row[1])}")
+                            expiration = 0
+                
                 current_time = time.time()
                 time_left = expiration - current_time
+                time_left_minutes = time_left / 60
+                expiration_time_valid = True
+                
                 print(f"Token expiration: {time.ctime(expiration)}")
                 print(f"Current time: {time.ctime(current_time)}")
-                print(f"Time left: {time_left:.2f} seconds ({time_left/60:.2f} minutes)")
+                print(f"Time left: {time_left:.2f} seconds ({time_left_minutes:.2f} minutes)")
             
             # Make decisions based on token presence and expiration
             if not has_access_token:
@@ -509,14 +590,21 @@ def get_quickbooks_auth_status():
                 return False, "No refresh token found"
             
             # Check if access token is expired
-            if access_row[1] and access_row[1] < time.time():
-                seconds_expired = time.time() - access_row[1]
+            if expiration_time_valid and time_left_minutes < 0:
+                seconds_expired = abs(time_left_minutes * 60)
                 # Even if token is expired, still consider authenticated since we can refresh
                 # as long as we have the refresh token
                 print(f"Token expired {seconds_expired:.0f} seconds ago, but we have refresh token")
                 if has_refresh_token:
                     return True, "Token expired but can be refreshed"
                 return False, f"Token expired {seconds_expired:.0f} seconds ago"
+            
+            # Check if token is close to expiration (less than 5 minutes)
+            if expiration_time_valid and 0 <= time_left_minutes < 5:
+                print(f"Token is close to expiration: {time_left_minutes:.2f} minutes left")
+                if has_refresh_token:
+                    return True, f"Token valid but expiring soon ({time_left_minutes:.1f} minutes left)"
+                return False, f"Token expiring soon and no refresh token available"
                 
             return True, "Authenticated and token valid"
             
@@ -527,5 +615,12 @@ def get_quickbooks_auth_status():
     except SQLAlchemyError as e:
         error_msg = f"Database error checking auth status: {str(e)}"
         print(error_msg)
-        st.error(error_msg)
+        import traceback
+        print(traceback.format_exc())
+        return False, error_msg
+    except Exception as general_error:
+        error_msg = f"Unexpected error checking auth status: {str(general_error)}"
+        print(error_msg)
+        import traceback
+        print(traceback.format_exc()) 
         return False, error_msg
