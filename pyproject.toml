@@ -11,8 +11,9 @@ dependencies = [
     "pillow>=11.1.0",
     "psycopg2-binary>=2.9.10",
     "pyembroidery>=1.5.1",
-    "quickbooks-python>=0.1.5",
+    "python-quickbooks>=0.9.11",
     "reportlab>=4.3.1",
+    "requests>=2.32.3",
     "sqlalchemy>=2.0.40",
     "streamlit>=1.44.0",
 ]
