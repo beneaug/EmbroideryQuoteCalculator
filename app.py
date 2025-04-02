@@ -786,20 +786,18 @@ def main():
         # Step 1: File Upload or Manual Entry Section
         st.header("Step 1: Choose Design Source")
         
-        # Simple toggle for entry method
-        entry_method = st.radio(
-            "Select entry method",
-            ["📄 Upload Design File", "✏️ Manual Entry"],
-            horizontal=True,
-            help="Choose whether to upload a design file or enter stitch count manually",
-            format_func=lambda x: x.split(" ", 1)[1]  # Remove the emoji for display (but keep for selection)
-        )
-        
-        # Map the simplified options back to the original format
-        if entry_method == "📄 Upload Design File":
-            entry_method = "Upload Design File"
-        elif entry_method == "✏️ Manual Entry":
-            entry_method = "Manual Entry (No Design File)"
+        # Create a small container for the toggle
+        col1, col2, col3 = st.columns([3, 4, 3])
+        with col2:
+            # Create a simple switch toggle
+            use_manual_entry = st.toggle(
+                "Manual Entry (no design file)",
+                value=False,
+                help="Switch to manual entry if you don't have a design file"
+            )
+            
+        # Set entry method based on toggle state
+        entry_method = "Manual Entry (No Design File)" if use_manual_entry else "Upload Design File"
         
         if entry_method == "Upload Design File":
             uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
