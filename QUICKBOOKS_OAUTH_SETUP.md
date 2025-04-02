@@ -33,13 +33,22 @@ The error **"The authorization code has expired or already been used"** occurs w
 1. Log into the [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)
 2. Select your application
 3. Go to the **Keys & OAuth** tab
-4. In the **Redirect URIs** section, add or modify the URI to exactly match:
+4. In the **Redirect URIs** section, add or modify the URI to exactly match the one displayed in the application logs. It will look like:
    ```
    https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
    ```
-   (This is the URI our application is currently using)
-5. Save your changes
-6. Try the authorization process again
+   (The specific URL will vary each time your Replit restarts)
+5. When adding the redirect URI to Intuit:
+   - Make sure to include `/callback` at the end
+   - Copy the EXACT URI from the application logs, with no modifications
+   - Do not add any additional query parameters
+6. Save your changes in the Intuit Developer Dashboard
+7. Try the authorization process again
+
+**IMPORTANT NOTE**: Every time your Replit restarts, your domain name changes. You MUST update the redirect URI in your Intuit Developer Dashboard to match the new domain name. Look for this line in your application logs:
+```
+Setting redirect URI to OAuth server: https://your-replit-domain/callback
+```
 
 #### Option 2: Update Our Application Code
 

@@ -1352,23 +1352,27 @@ def get_quickbooks_auth_url():
     # Create a redirect URI based on the Replit domain
     # CRITICAL: This must match EXACTLY what's registered in Intuit Developer Dashboard
     if replit_domain:
-        # IMPORTANT: The redirect URI MUST match exactly what's registered in the 
-        # Intuit Developer Dashboard - you might need to modify this based on your registration
+        # IMPORTANT: The redirect URI is now going to point to our OAuth server directly
+        # The OAuth server handles all callback paths (/callback, /api/quickbooks/callback, etc.)
         
-        # Option 1: If you registered with /callback path (most common)
-        default_redirect_uri = f"https://{replit_domain}/callback"
+        # Generate a redirect URI based on the OAuth server path
+        # This ensures the authorization code goes directly to the OAuth server
+        # instead of to Streamlit (which causes the code reuse issue)
         
-        # Option 2: If you registered the root domain without path
-        # Uncomment this line if Option 1 doesn't work
-        # default_redirect_uri = f"https://{replit_domain}"
+        # For Replit, we use internal networking between the Streamlit app and OAuth server
+        # This ensures the OAuth flow happens in the right order
+        oauth_server_domain = replit_domain
+        default_redirect_uri = f"https://{oauth_server_domain}/callback"
         
-        # Option 3: If you registered with a different path
-        # default_redirect_uri = f"https://{replit_domain}/your-custom-path"
+        print(f"Setting redirect URI to OAuth server: {default_redirect_uri}")
         
-        # NOTE: If you ever change the redirect URI in Intuit Developer Dashboard,
-        # you must update this code to match EXACTLY what's registered there
+        # IMPORTANT: The redirect URI in Intuit Developer Dashboard MUST match this!
+        # Go to https://developer.intuit.com/app/developer/dashboard
+        # Select your app -> Development/Production -> Keys & OAuth -> Redirect URI
+        # Add the exact URI printed above with no modifications
     else:
-        default_redirect_uri = "http://localhost:5000"
+        # For local development
+        default_redirect_uri = "http://localhost:5001/callback"  # point to OAuth server port
     
     # Always update the redirect URI to match the current Replit domain
     # This prevents issues when the Replit URL changes between sessions
