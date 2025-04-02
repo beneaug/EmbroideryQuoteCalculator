@@ -889,7 +889,7 @@ def get_quickbooks_client():
         return None, f"Error initializing QuickBooks client: {str(e)}\n{error_details}"
 
 def export_to_quickbooks(design_info, job_inputs, cost_results):
-    """Export quote as an invoice to QuickBooks"""
+    """Export quote as an estimate to QuickBooks"""
     if not QUICKBOOKS_AVAILABLE:
         return False, "QuickBooks integration is not available. Please install the required libraries."
     
@@ -901,7 +901,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
     try:
         # Import necessary modules
         from quickbooks.objects.customer import Customer
-        from quickbooks.objects.invoice import Invoice
+        from quickbooks.objects.estimate import Estimate  # Use Estimate instead of Invoice
         from quickbooks.objects.item import Item
         from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
         from quickbooks.objects.base import Ref
@@ -941,14 +941,14 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
             customer = customers[0]
             print(f"Using existing customer with ID: {customer.Id if hasattr(customer, 'Id') else 'Unknown'}")
         
-        # Create new invoice
-        print("Creating new invoice")
-        invoice = Invoice()
-        invoice.CustomerRef = customer.to_ref()
+        # Create new estimate
+        print("Creating new estimate")
+        estimate = Estimate()
+        estimate.CustomerRef = customer.to_ref()
         
         # Add job details to memo
         job_name = job_inputs.get("job_name", "Embroidery Job")
-        invoice.CustomerMemo = {
+        estimate.CustomerMemo = {
             "value": f"Job: {job_name} - {design_info['stitch_count']} stitches, {job_inputs.get('color_count', 1)} colors"
         }
         
@@ -992,22 +992,22 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         detail.UnitPrice = cost_results['price_per_piece']
         line.SalesItemLineDetail = detail
         
-        # Add line to invoice
-        invoice.Line = []
-        invoice.Line.append(line)
+        # Add line to estimate
+        estimate.Line = []
+        estimate.Line.append(line)
         
-        # Save the invoice
-        print("Saving invoice to QuickBooks")
-        invoice.save(qb=client)
+        # Save the estimate
+        print("Saving estimate to QuickBooks")
+        estimate.save(qb=client)
         
-        # Get invoice details for better debugging
-        invoice_id = invoice.Id if hasattr(invoice, 'Id') else "Unknown"
-        invoice_number = invoice.DocNumber if hasattr(invoice, 'DocNumber') else "Unknown"
-        print(f"Invoice saved with ID: {invoice_id} and number: {invoice_number}")
+        # Get estimate details for better debugging
+        estimate_id = estimate.Id if hasattr(estimate, 'Id') else "Unknown"
+        estimate_number = estimate.DocNumber if hasattr(estimate, 'DocNumber') else "Unknown"
+        print(f"Estimate saved with ID: {estimate_id} and number: {estimate_number}")
         
-        # Return success with invoice ID and directions for finding it
-        invoice_num = f"Invoice #{invoice.DocNumber}" if hasattr(invoice, 'DocNumber') else "Invoice"
-        return True, f"{invoice_num} (ID: {invoice_id}) created. Find it in QuickBooks under Accounts Receivable > Invoices in the {qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')} environment."
+        # Return success with estimate ID and directions for finding it
+        estimate_num = f"Estimate #{estimate.DocNumber}" if hasattr(estimate, 'DocNumber') else "Estimate"
+        return True, f"{estimate_num} (ID: {estimate_id}) created. Find it in QuickBooks under Sales > Estimates in the {qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')} environment."
         
     except Exception as e:
         import traceback
@@ -2178,32 +2178,45 @@ def main():
                 
                 if is_authenticated:
                     # Create the QuickBooks export button to match the download buttons
+                    # Create a dedicated container for the QuickBooks export button
                     export_button_col = st.container()
                     
                     with export_button_col:
                         if st.button("Export to QuickBooks", 
-                                  help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
+                                  help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
                                   key="export_to_qb_button",
                                   use_container_width=True,
                                   type="primary"):
                             with st.spinner("Exporting to QuickBooks..."):
                                 # Store a copy of all data needed for the export
                                 if 'design_info' in st.session_state and st.session_state.design_info:
-                                    # Make a deep copy to ensure we don't lose data
-                                    export_design_info = dict(st.session_state.design_info)
-                                    export_job_inputs = dict(job_inputs)
-                                    export_cost_results = dict(cost_results)
-                                    
-                                    success, message = export_to_quickbooks(
-                                        export_design_info, 
-                                        export_job_inputs, 
-                                        export_cost_results
-                                    )
-                                    
-                                    if success:
-                                        st.success(f"Successfully exported to QuickBooks: {message}")
-                                    else:
-                                        st.error(f"Failed to export to QuickBooks: {message}")
+                                    try:
+                                        # Make a deep copy to ensure we don't lose data
+                                        # Use explicit deep copies to avoid any reference issues
+                                        import copy
+                                        export_design_info = copy.deepcopy(st.session_state.design_info)
+                                        export_job_inputs = copy.deepcopy(job_inputs)
+                                        export_cost_results = copy.deepcopy(cost_results)
+                                        
+                                        # Create a placeholder for the export status
+                                        status_placeholder = st.empty()
+                                        
+                                        # Perform the export
+                                        success, message = export_to_quickbooks(
+                                            export_design_info, 
+                                            export_job_inputs, 
+                                            export_cost_results
+                                        )
+                                        
+                                        # Show status message in the placeholder
+                                        if success:
+                                            status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                        else:
+                                            status_placeholder.error(f"Failed to export to QuickBooks: {message}")
+                                    except Exception as e:
+                                        import traceback
+                                        st.error(f"Error during QuickBooks export: {str(e)}")
+                                        st.code(traceback.format_exc())
                                 else:
                                     st.error("Design information not available. Please recalculate the quote.")
                 else:
@@ -2267,26 +2280,37 @@ def main():
                             
                             with export_history_button_col:
                                 if st.button("Export to QuickBooks", 
-                                          help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
+                                          help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
                                           key=f"export_to_qb_button_{i}",
                                           use_container_width=True,
                                           type="primary"):
                                     with st.spinner("Exporting to QuickBooks..."):
-                                        # Make copies of the data to preserve it
-                                        export_design_info = dict(entry['design_info'])
-                                        export_job_inputs = dict(entry['job_inputs'])
-                                        export_cost_results = dict(entry['cost_results'])
-                                        
-                                        success, message = export_to_quickbooks(
-                                            export_design_info, 
-                                            export_job_inputs, 
-                                            export_cost_results
-                                        )
-                                        
-                                        if success:
-                                            st.success(f"Successfully exported to QuickBooks: {message}")
-                                        else:
-                                            st.error(f"Failed to export to QuickBooks: {message}")
+                                        try:
+                                            # Make deep copies of the data to preserve it
+                                            import copy
+                                            export_design_info = copy.deepcopy(entry['design_info'])
+                                            export_job_inputs = copy.deepcopy(entry['job_inputs'])
+                                            export_cost_results = copy.deepcopy(entry['cost_results'])
+                                            
+                                            # Create a placeholder for the export status
+                                            status_placeholder = st.empty()
+                                            
+                                            # Perform the export
+                                            success, message = export_to_quickbooks(
+                                                export_design_info, 
+                                                export_job_inputs, 
+                                                export_cost_results
+                                            )
+                                            
+                                            # Show status message in the placeholder without rerunning the app
+                                            if success:
+                                                status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                            else:
+                                                status_placeholder.error(f"Failed to export to QuickBooks: {message}")
+                                        except Exception as e:
+                                            import traceback
+                                            st.error(f"Error during QuickBooks export: {str(e)}")
+                                            st.code(traceback.format_exc())
     
     # Admin Settings Tab
     with tab3:
