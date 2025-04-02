@@ -22,21 +22,42 @@ import requests
 import urllib.parse
 import database
 
-# Import QuickBooks Libraries
+# Import QuickBooks Libraries with better error handling
+QUICKBOOKS_AVAILABLE = False
+QUICKBOOKS_IMPORT_ERROR = ""
 try:
-    from intuitlib.client import AuthClient
-    from intuitlib.exceptions import AuthClientError
-    from quickbooks.objects.invoice import Invoice
-    from quickbooks.objects.customer import Customer
-    from quickbooks.objects.item import Item
-    from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
-    from quickbooks.objects.base import Ref
-    from quickbooks import QuickBooks
-    QUICKBOOKS_AVAILABLE = True
-    print("QuickBooks libraries imported successfully")
-except ImportError as e:
-    print(f"Error importing QuickBooks libraries: {str(e)}")
-    # Define placeholder classes for type checking
+    # First check if the intuitlib module is available
+    import intuitlib
+    try:
+        from intuitlib.client import AuthClient
+        from intuitlib.exceptions import AuthClientError
+        print("Intuit OAuth library imported successfully")
+        
+        # Now check if the quickbooks module is available
+        import quickbooks
+        try:
+            from quickbooks.objects.invoice import Invoice
+            from quickbooks.objects.customer import Customer
+            from quickbooks.objects.item import Item
+            from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
+            from quickbooks.objects.base import Ref
+            from quickbooks import QuickBooks
+            # If we get here, all imports worked
+            QUICKBOOKS_AVAILABLE = True
+            print("QuickBooks libraries imported successfully")
+        except ImportError as qb_error:
+            QUICKBOOKS_IMPORT_ERROR = f"Error importing QuickBooks objects: {str(qb_error)}"
+            print(QUICKBOOKS_IMPORT_ERROR)
+    except ImportError as intuit_error:
+        QUICKBOOKS_IMPORT_ERROR = f"Error importing Intuit OAuth library: {str(intuit_error)}"
+        print(QUICKBOOKS_IMPORT_ERROR)
+except ImportError as base_error:
+    QUICKBOOKS_IMPORT_ERROR = f"Base module 'intuitlib' not available: {str(base_error)}"
+    print(QUICKBOOKS_IMPORT_ERROR)
+
+# Define placeholder classes for type checking if libraries not available
+if not QUICKBOOKS_AVAILABLE:
+    print(f"Setting up placeholder QuickBooks classes: {QUICKBOOKS_IMPORT_ERROR}")
     class AuthClient:
         pass
     class AuthClientError(Exception):
@@ -55,7 +76,6 @@ except ImportError as e:
         pass
     class Ref:
         pass
-    QUICKBOOKS_AVAILABLE = False
 
 # Set page config
 st.set_page_config(
@@ -948,26 +968,50 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return False, f"Error exporting to QuickBooks: {str(e)}\n{error_details}"
 
 def get_quickbooks_auth_url():
-    """Generate QuickBooks authorization URL"""
+    """Generate QuickBooks authorization URL with improved debugging"""
+    # Display QuickBooks library status to help with debugging
+    st.info(f"QuickBooks libraries available: {QUICKBOOKS_AVAILABLE}")
     if not QUICKBOOKS_AVAILABLE:
-        st.error("QuickBooks libraries are not available")
+        st.error(f"QuickBooks libraries are not available: {QUICKBOOKS_IMPORT_ERROR}")
         return None
     
+    # Log settings retrieval
+    st.info("Retrieving QuickBooks settings from database...")
     qb_settings = database.get_quickbooks_settings()
+    
+    # Mask sensitive values but show if they exist
     client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+    client_id_masked = f"{client_id[:5]}..." if client_id else None
+    
     client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
+    client_secret_masked = "****" if client_secret else None
+    
     redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
     environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
     
+    # Log the retrieved settings (masked for security)
+    st.info(f"""QuickBooks settings retrieved:
+    - Client ID: {client_id_masked or "Not set"}
+    - Client Secret: {client_secret_masked or "Not set"}
+    - Redirect URI: {redirect_uri or "Not set"}
+    - Environment: {environment or "Not set"}
+    """)
+    
     if not client_id or not redirect_uri:
+        st.error("Missing required settings: Client ID and Redirect URI")
         return None
     
     try:
         # Import the necessary libraries
+        st.info("Importing QuickBooks OAuth libraries...")
         from intuitlib.client import AuthClient as IntuitAuthClient
         from intuitlib.enums import Scopes
         
+        # Log the available scopes for debugging
+        st.info(f"Available scopes: {[s.name for s in Scopes]}")
+        
         # Initialize the Intuit auth client
+        st.info("Initializing Intuit Auth Client...")
         intuit_auth_client = IntuitAuthClient(
             client_id=client_id,
             client_secret=client_secret,
@@ -976,11 +1020,33 @@ def get_quickbooks_auth_url():
         )
         
         # Define the scopes using the proper Scopes enum
+        st.info("Setting authorization scopes...")
         scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
         
         # Get the authorization URL
+        st.info("Generating authorization URL...")
         auth_url = intuit_auth_client.get_authorization_url(scopes)
+        
+        # Log success and partial URL (for security)
+        if auth_url:
+            url_parts = auth_url.split("?")
+            base_url = url_parts[0]
+            params = url_parts[1] if len(url_parts) > 1 else ""
+            
+            # Mask client_id in params if present
+            if client_id and client_id in params:
+                params = params.replace(client_id, f"{client_id[:5]}...")
+                
+            st.info(f"Authorization URL generated successfully: {base_url}?{params}")
+        else:
+            st.error("Authorization URL generation returned None")
+            
         return auth_url
+        
+    except ImportError as ie:
+        st.error(f"Import error: {str(ie)}")
+        st.error("The required QuickBooks libraries are not installed properly.")
+        return None
     except Exception as e:
         st.error(f"Error generating authorization URL: {str(e)}")
         import traceback
@@ -2580,12 +2646,17 @@ def main():
                     if auth_code_url and "code=" in auth_code_url:
                         # Extract the authorization code
                         try:
+                            # Show detailed debug information
+                            st.info("Processing authorization code...")
+                            
                             auth_code = auth_code_url.split("code=")[1].split("&")[0]
+                            st.info(f"Authorization code extracted: {auth_code[:5]}...")
                             
                             # Use the Intuit OAuth library to get tokens
                             from intuitlib.client import AuthClient as IntuitAuthClient
                             
                             # Initialize auth client
+                            st.info("Initializing OAuth client...")
                             intuit_auth_client = IntuitAuthClient(
                                 client_id=client_id,
                                 client_secret=client_secret,
@@ -2596,28 +2667,52 @@ def main():
                             # Extract the realm_id from URL if available
                             if "realmId=" in auth_code_url:
                                 realm_id = auth_code_url.split("realmId=")[1].split("&")[0]
-                                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                                st.info(f"Realm ID extracted: {realm_id}")
+                                
+                                # Update the realm ID in the database
+                                db_result = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                                st.info(f"Realm ID saved to database: {'Success' if db_result else 'Failed'}")
                                 
                             # Need to import Scopes for the token exchange
                             from intuitlib.enums import Scopes
                             
                             # Exchange code for tokens
+                            st.info("Exchanging authorization code for tokens...")
                             scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
                             intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
                             
+                            # Show token information (partially masked)
+                            st.info(f"Access token received: {intuit_auth_client.access_token[:10]}...")
+                            st.info(f"Refresh token received: {intuit_auth_client.refresh_token[:10]}...")
+                            st.info(f"Token expires in: {intuit_auth_client.expires_in} seconds")
+                            
                             # Save tokens to database
-                            database.update_quickbooks_token(
+                            st.info("Saving tokens to database...")
+                            
+                            # Save access token with expiration
+                            access_result = database.update_quickbooks_token(
                                 "QB_ACCESS_TOKEN", 
                                 intuit_auth_client.access_token,
                                 time.time() + intuit_auth_client.expires_in
                             )
-                            database.update_quickbooks_token(
+                            st.info(f"Access token saved: {'Success' if access_result else 'Failed'}")
+                            
+                            # Save refresh token
+                            refresh_result = database.update_quickbooks_token(
                                 "QB_REFRESH_TOKEN", 
                                 intuit_auth_client.refresh_token
                             )
+                            st.info(f"Refresh token saved: {'Success' if refresh_result else 'Failed'}")
                             
-                            st.success("Authorization successful! Tokens saved.")
-                            st.rerun()
+                            # Check authentication status
+                            auth_status, auth_message = database.get_quickbooks_auth_status()
+                            st.info(f"Final auth status: {auth_status}, Message: {auth_message}")
+                            
+                            st.success("Authorization process completed! Check status above.")
+                            
+                            # Show a button to reload instead of automatic rerun
+                            if st.button("Reload to update status"):
+                                st.rerun()
                         except Exception as e:
                             st.error(f"Authorization failed: {str(e)}")
             
