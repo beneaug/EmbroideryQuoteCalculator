@@ -906,21 +906,43 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
         from quickbooks.objects.base import Ref
         
+        # Log the QuickBooks realm ID
+        qb_settings = database.get_quickbooks_settings()
+        realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
+        print(f"QuickBooks Realm ID: {realm_id}")
+        
+        # Log job inputs to debug
+        print(f"Exporting to QuickBooks - Customer: {job_inputs.get('customer_name', 'New Customer')}")
+        print(f"Exporting to QuickBooks - Job: {job_inputs.get('job_name', 'Embroidery Job')}")
+        print(f"Exporting to QuickBooks - Environment: {qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')}")
+        
         # Find or create customer
         customer_name = job_inputs.get("customer_name", "New Customer")
-        customers = Customer.query(f"SELECT * FROM Customer WHERE DisplayName = '{customer_name}'", qb=client)
+        print(f"Searching for customer: {customer_name}")
+        
+        # Query customer with better error handling
+        try:
+            customers = Customer.query(f"SELECT * FROM Customer WHERE DisplayName = '{customer_name}'", qb=client)
+            print(f"Found {len(customers)} customers matching {customer_name}")
+        except Exception as ce:
+            print(f"Error querying customers: {str(ce)}")
+            customers = []
         
         if not customers:
             # Create new customer
+            print(f"Creating new customer: {customer_name}")
             customer = Customer()
             customer.DisplayName = customer_name
             if customer_name:
                 customer.CompanyName = customer_name
             customer.save(qb=client)
+            print(f"New customer created with ID: {customer.Id if hasattr(customer, 'Id') else 'Unknown'}")
         else:
             customer = customers[0]
+            print(f"Using existing customer with ID: {customer.Id if hasattr(customer, 'Id') else 'Unknown'}")
         
         # Create new invoice
+        print("Creating new invoice")
         invoice = Invoice()
         invoice.CustomerRef = customer.to_ref()
         
@@ -937,13 +959,31 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         line.DetailType = "SalesItemLineDetail"
         
         # Get service item reference - find or create
-        items = Item.query("SELECT * FROM Item WHERE Type = 'Service' AND Name = 'Embroidery Services'", qb=client)
-        if not items:
-            # Would need to create a service item - this is a complex operation
-            # and would require additional setup in QuickBooks first
-            return False, "Embroidery Services item not found in QuickBooks. Please create this item in QuickBooks first."
+        print("Searching for 'Embroidery Services' item")
+        try:
+            items = Item.query("SELECT * FROM Item WHERE Type = 'Service' AND Name = 'Embroidery Services'", qb=client)
+            print(f"Found {len(items)} items matching 'Embroidery Services'")
+        except Exception as ie:
+            print(f"Error querying items: {str(ie)}")
+            items = []
         
-        item = items[0]
+        if not items:
+            # Try to create a service item
+            try:
+                print("Creating 'Embroidery Services' item")
+                item = Item()
+                item.Name = "Embroidery Services"
+                item.Description = "Embroidery services including digitizing, setup, and production"
+                item.Type = "Service"
+                item.IncomeAccountRef = {"value": "1", "name": "Services"}  # This will need to be adjusted based on the chart of accounts
+                item.save(qb=client)
+                print(f"Created 'Embroidery Services' item with ID: {item.Id if hasattr(item, 'Id') else 'Unknown'}")
+            except Exception as ie:
+                print(f"Error creating item: {str(ie)}")
+                return False, "Embroidery Services item not found in QuickBooks and couldn't be created. Please create this service item in QuickBooks first."
+        else:
+            item = items[0]
+            print(f"Using existing item with ID: {item.Id if hasattr(item, 'Id') else 'Unknown'}")
         
         # Set line item details
         detail = SalesItemLineDetail()
@@ -957,15 +997,22 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         invoice.Line.append(line)
         
         # Save the invoice
+        print("Saving invoice to QuickBooks")
         invoice.save(qb=client)
+        
+        # Get invoice details for better debugging
+        invoice_id = invoice.Id if hasattr(invoice, 'Id') else "Unknown"
+        invoice_number = invoice.DocNumber if hasattr(invoice, 'DocNumber') else "Unknown"
+        print(f"Invoice saved with ID: {invoice_id} and number: {invoice_number}")
         
         # Return success with invoice ID and directions for finding it
         invoice_num = f"Invoice #{invoice.DocNumber}" if hasattr(invoice, 'DocNumber') else "Invoice"
-        return True, f"{invoice_num} created. Find it in QuickBooks under Accounts Receivable > Invoices."
+        return True, f"{invoice_num} (ID: {invoice_id}) created. Find it in QuickBooks under Accounts Receivable > Invoices in the {qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')} environment."
         
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
+        print(f"QuickBooks Export Error: {str(e)}\n{error_details}")
         return False, f"Error exporting to QuickBooks: {str(e)}\n{error_details}"
 
 def get_quickbooks_auth_url():
@@ -2131,22 +2178,34 @@ def main():
                 
                 if is_authenticated:
                     # Create the QuickBooks export button to match the download buttons
-                    if st.button("Export to QuickBooks", 
-                              help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
-                              key="export_to_qb_button",
-                              use_container_width=True,
-                              type="primary"):
-                        with st.spinner("Exporting to QuickBooks..."):
-                            success, message = export_to_quickbooks(
-                                st.session_state.design_info, 
-                                job_inputs, 
-                                cost_results
-                            )
-                            
-                            if success:
-                                st.success(f"Successfully exported to QuickBooks: {message}")
-                            else:
-                                st.error(f"Failed to export to QuickBooks: {message}")
+                    export_button_col = st.container()
+                    
+                    with export_button_col:
+                        if st.button("Export to QuickBooks", 
+                                  help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
+                                  key="export_to_qb_button",
+                                  use_container_width=True,
+                                  type="primary"):
+                            with st.spinner("Exporting to QuickBooks..."):
+                                # Store a copy of all data needed for the export
+                                if 'design_info' in st.session_state and st.session_state.design_info:
+                                    # Make a deep copy to ensure we don't lose data
+                                    export_design_info = dict(st.session_state.design_info)
+                                    export_job_inputs = dict(job_inputs)
+                                    export_cost_results = dict(cost_results)
+                                    
+                                    success, message = export_to_quickbooks(
+                                        export_design_info, 
+                                        export_job_inputs, 
+                                        export_cost_results
+                                    )
+                                    
+                                    if success:
+                                        st.success(f"Successfully exported to QuickBooks: {message}")
+                                    else:
+                                        st.error(f"Failed to export to QuickBooks: {message}")
+                                else:
+                                    st.error("Design information not available. Please recalculate the quote.")
                 else:
                     st.warning(f"QuickBooks integration not available: {auth_message}. Please configure in Admin settings.")
         
@@ -2204,22 +2263,30 @@ def main():
                         
                         if is_authenticated:
                             # Export to QuickBooks button for history to match download buttons
-                            if st.button("Export to QuickBooks", 
-                                      help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
-                                      key=f"export_to_qb_button_{i}",
-                                      use_container_width=True,
-                                      type="primary"):
-                                with st.spinner("Exporting to QuickBooks..."):
-                                    success, message = export_to_quickbooks(
-                                        entry['design_info'], 
-                                        entry['job_inputs'], 
-                                        entry['cost_results']
-                                    )
-                                    
-                                    if success:
-                                        st.success(f"Successfully exported to QuickBooks: {message}")
-                                    else:
-                                        st.error(f"Failed to export to QuickBooks: {message}")
+                            export_history_button_col = st.container()
+                            
+                            with export_history_button_col:
+                                if st.button("Export to QuickBooks", 
+                                          help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
+                                          key=f"export_to_qb_button_{i}",
+                                          use_container_width=True,
+                                          type="primary"):
+                                    with st.spinner("Exporting to QuickBooks..."):
+                                        # Make copies of the data to preserve it
+                                        export_design_info = dict(entry['design_info'])
+                                        export_job_inputs = dict(entry['job_inputs'])
+                                        export_cost_results = dict(entry['cost_results'])
+                                        
+                                        success, message = export_to_quickbooks(
+                                            export_design_info, 
+                                            export_job_inputs, 
+                                            export_cost_results
+                                        )
+                                        
+                                        if success:
+                                            st.success(f"Successfully exported to QuickBooks: {message}")
+                                        else:
+                                            st.error(f"Failed to export to QuickBooks: {message}")
     
     # Admin Settings Tab
     with tab3:
