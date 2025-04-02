@@ -98,9 +98,14 @@ def parse_embroidery_file(uploaded_file):
         # Calculate design area
         design_area_sq_mm = width_mm * height_mm
         
-        # Estimate thread consumption (simple heuristic: 1 meter per 500 stitches)
-        thread_length_meters = stitch_count / 500
+        # Estimate thread consumption 
+        # Average top thread usage: 1.5 meters per 1000 stitches (based on industry standards)
+        thread_length_meters = stitch_count * 0.0015 * 1000 / 1000
         thread_length_yards = thread_length_meters * 1.09361
+        
+        # Estimate bobbin thread consumption (typically about 1/3 of top thread)
+        bobbin_length_meters = thread_length_meters / 3
+        bobbin_length_yards = bobbin_length_meters * 1.09361
         
         # Calculate stitch density (stitches per square mm)
         stitch_density = stitch_count / design_area_sq_mm if design_area_sq_mm > 0 else 0
@@ -124,6 +129,9 @@ def parse_embroidery_file(uploaded_file):
             "width_inches": width_inches,
             "height_inches": height_inches,
             "thread_length_yards": thread_length_yards,
+            "thread_length_meters": thread_length_meters,
+            "bobbin_length_yards": bobbin_length_yards,
+            "bobbin_length_meters": bobbin_length_meters,
             "complexity_score": complexity_score,
             "stitch_density": stitch_density
         }
@@ -275,7 +283,11 @@ def calculate_costs(design_info, job_inputs):
         thread_cost = spools_required * thread_cost_per_spool
     
     # 2. Bobbin consumption & cost
-    bobbin_thread_yards = thread_per_piece_yards * 0.4 * quantity  # 40% of top thread
+    if 'bobbin_length_yards' in design_info:
+        bobbin_thread_yards = design_info['bobbin_length_yards'] * quantity
+    else:
+        bobbin_thread_yards = thread_per_piece_yards * (1/3) * quantity  # 1/3 of top thread
+    
     bobbins_required = math.ceil(bobbin_thread_yards / BOBBIN_YARDS)
     bobbin_cost = bobbins_required * (BOBBIN_144_PRICE / 144)  # Cost per bobbin
     
@@ -834,6 +846,14 @@ def main():
             
             # Create a design_info dict for manual entry
             if entry_method == "Manual Entry (No Design File)":
+                # Calculate thread consumption for manual entry
+                thread_length_meters = manual_stitch_count * 0.0015  # 1.5 meters per 1000 stitches
+                thread_length_yards = thread_length_meters * 1.09361
+                
+                # Estimate bobbin thread consumption (typically about 1/3 of top thread)
+                bobbin_length_meters = thread_length_meters / 3
+                bobbin_length_yards = bobbin_length_meters * 1.09361
+                
                 st.session_state.design_info = {
                     "stitch_count": manual_stitch_count,
                     "color_changes": manual_colors,
@@ -842,7 +862,10 @@ def main():
                     "width_mm": manual_width * 25.4,
                     "height_mm": manual_height * 25.4,
                     "complexity_score": manual_complexity,
-                    "thread_length_yards": manual_stitch_count * 0.01,  # Approximate thread length
+                    "thread_length_yards": thread_length_yards,
+                    "thread_length_meters": thread_length_meters,
+                    "bobbin_length_yards": bobbin_length_yards,
+                    "bobbin_length_meters": bobbin_length_meters,
                     "pattern": None  # No pattern for manual entry
                 }
         
@@ -864,10 +887,17 @@ def main():
                 # Basic design metrics
                 with col1:
                     st.metric("Stitch Count", f"{st.session_state.design_info['stitch_count']:,}")
-                    # Add thread length in yards and meters
+                    
+                    # Top thread information
                     thread_yards = st.session_state.design_info['thread_length_yards']
-                    thread_meters = thread_yards * 0.9144  # Convert yards to meters
-                    st.metric("Thread Length", f"{thread_yards:.2f} yards ({thread_meters:.2f} meters)")
+                    thread_meters = st.session_state.design_info.get('thread_length_meters', thread_yards * 0.9144)
+                    st.metric("Top Thread", f"{thread_yards:.2f} yards ({thread_meters:.2f} meters)")
+                    
+                    # Bobbin thread information
+                    bobbin_yards = st.session_state.design_info.get('bobbin_length_yards', thread_yards * 0.33)
+                    bobbin_meters = st.session_state.design_info.get('bobbin_length_meters', bobbin_yards * 0.9144)
+                    st.metric("Bobbin Thread", f"{bobbin_yards:.2f} yards ({bobbin_meters:.2f} meters)")
+                    
                     st.metric("Colors", f"{st.session_state.design_info['color_changes']}")
                     st.metric("Dimensions", 
                             f"{st.session_state.design_info['width_inches']:.2f}\" × {st.session_state.design_info['height_inches']:.2f}\" " +
