@@ -99,8 +99,8 @@ def parse_embroidery_file(uploaded_file):
         design_area_sq_mm = width_mm * height_mm
         
         # Estimate thread consumption 
-        # Average top thread usage: 1.5 meters per 1000 stitches (based on industry standards)
-        thread_length_meters = stitch_count * 0.0015 * 1000 / 1000
+        # Industry standard for top thread: ~4.8 meters per 1000 stitches
+        thread_length_meters = stitch_count * 0.0048
         thread_length_yards = thread_length_meters * 1.09361
         
         # Estimate bobbin thread consumption (typically about 1/3 of top thread)
@@ -679,11 +679,13 @@ def main():
     h1, h2, h3 {
         color: #3a1d0d;
         font-weight: 700;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
     
     h1 {
         font-size: 3rem;
         margin-bottom: 1.5rem;
+        font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
     
     /* Card styling */
@@ -847,7 +849,7 @@ def main():
             # Create a design_info dict for manual entry
             if entry_method == "Manual Entry (No Design File)":
                 # Calculate thread consumption for manual entry
-                thread_length_meters = manual_stitch_count * 0.0015  # 1.5 meters per 1000 stitches
+                thread_length_meters = manual_stitch_count * 0.0048  # 4.8 meters per 1000 stitches
                 thread_length_yards = thread_length_meters * 1.09361
                 
                 # Estimate bobbin thread consumption (typically about 1/3 of top thread)
@@ -965,7 +967,7 @@ def main():
             margin-bottom: 5px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         ">
-            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Job Information</h3>
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Job Information</h3>
         </div>
         """, unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -1000,7 +1002,7 @@ def main():
             margin-bottom: 5px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         ">
-            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Machine & Technical Settings</h3>
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Machine & Technical Settings</h3>
         </div>
         """
         , unsafe_allow_html=True)
@@ -1145,7 +1147,7 @@ def main():
             margin-bottom: 5px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         ">
-            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Pricing Information</h3>
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Pricing Information</h3>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1268,7 +1270,7 @@ def main():
                 box-shadow: 0 4px 12px rgba(243, 119, 12, 0.2);
                 text-align: center;
             ">
-                <h2 style="margin: 0; color: white; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">Quote Results</h2>
+                <h2 style="margin: 0; color: white; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">Quote Results</h2>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1399,7 +1401,7 @@ def main():
                 margin: 20px 0 10px 0;
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
             ">
-                <h3 style="margin: 0; color: #3a1d0d; font-weight: 700;">Download Quotes</h3>
+                <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Download Quotes</h3>
             </div>
             """, unsafe_allow_html=True)
             
