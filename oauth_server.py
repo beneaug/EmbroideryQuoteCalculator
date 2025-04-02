@@ -75,8 +75,8 @@ def quickbooks_auth():
     clean_old_states()
     
     # Build the OAuth URL with standard parameters
-    # Use the direct callback URL instead of building from request.host_url
-    callback_url = "http://localhost:5001/api/quickbooks/callback"
+    # Use the redirect URI that's registered in the Intuit Developer Dashboard
+    callback_url = "https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/api/quickbooks/callback"
     
     params = {
         'client_id': client_id,
@@ -95,6 +95,8 @@ def quickbooks_auth():
     })
 
 @app.route('/api/quickbooks/callback')
+# Also support the callback directly at the root path in case the redirect doesn't include /api
+@app.route('/quickbooks/callback')  
 def quickbooks_callback():
     """Handle the OAuth callback from QuickBooks"""
     # Get the authorization code and state
@@ -120,7 +122,7 @@ def quickbooks_callback():
     token_data = {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': "http://localhost:5001/api/quickbooks/callback"
+        'redirect_uri': "https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/api/quickbooks/callback"
     }
     
     headers = {
