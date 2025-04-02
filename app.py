@@ -783,70 +783,105 @@ def main():
     tab1, tab2, tab3 = st.tabs(["Create Quote", "Quote History", "Admin Settings"])
     
     with tab1:
-        # Step 1: File Upload Section
-        st.header("Step 1: Upload Design File")
+        # Step 1: File Upload or Manual Entry Section
+        st.header("Step 1: Choose File or Manual Entry")
         
-        # Custom file uploader with iOS-style design
-        st.markdown("""
-        <div class="upload-container" style="
-            background-color: #fff9f0;
-            border: 2px dashed #f3770c;
-            border-radius: 15px;
-            padding: 30px 20px;
-            text-align: center;
-            margin-bottom: 20px;
-        ">
-            <div style="margin-bottom: 15px;">
-                <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 4V16M12 4L8 8M12 4L16 8" stroke="#f3770c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M5 12V18C5 19.1046 5.89543 20 7 20H17C18.1046 20 19 19.1046 19 18V12" stroke="#f3770c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+        # Toggle between file upload and manual entry
+        entry_method = st.radio(
+            "Select entry method",
+            ["Upload Design File", "Manual Entry (No Design File)"],
+            horizontal=True,
+            help="Choose whether to upload a design file or enter stitch count manually"
+        )
+        
+        if entry_method == "Upload Design File":
+            uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
+                                         help="Upload your embroidery design file in DST or U01 format",
+                                         key="file_uploader")
+        else:
+            # Manual entry form
+            st.markdown("""
+            <div style="
+                background-color: #fff9f0;
+                border: 1px solid #f3770c;
+                border-radius: 15px;
+                padding: 20px;
+                margin-bottom: 20px;
+            ">
+                <h4 style="color: #3a1d0d; margin-top: 0;">Manual Stitch Information</h4>
+                <p style="color: #8b6c55; font-size: 14px;">Enter stitch information manually if you don't have a design file.</p>
             </div>
-            <p style="color: #3a1d0d; font-size: 18px; font-weight: 600; margin-bottom: 5px;">Drag and drop file here</p>
-            <p style="color: #8b6c55; font-size: 14px; margin-top: 0;">Limit 200MB per file · DST, U01</p>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                manual_stitch_count = st.number_input("Stitch Count", min_value=1, value=5000, step=100)
+                manual_colors = st.number_input("Number of Colors", min_value=1, value=3)
+            
+            with col2:
+                manual_width = st.number_input("Design Width (inches)", min_value=0.1, value=4.0, step=0.1)
+                manual_height = st.number_input("Design Height (inches)", min_value=0.1, value=4.0, step=0.1)
+            
+            manual_complexity = st.slider("Design Complexity", min_value=0, max_value=100, value=50,
+                                       help="Estimate of design complexity (0 = simple, 100 = complex)")
+            
+            # Create a design_info dict for manual entry
+            if entry_method == "Manual Entry (No Design File)":
+                st.session_state.design_info = {
+                    "stitch_count": manual_stitch_count,
+                    "color_changes": manual_colors,
+                    "width_inches": manual_width,
+                    "height_inches": manual_height,
+                    "width_mm": manual_width * 25.4,
+                    "height_mm": manual_height * 25.4,
+                    "complexity_score": manual_complexity,
+                    "thread_length_yards": manual_stitch_count * 0.01,  # Approximate thread length
+                    "pattern": None  # No pattern for manual entry
+                }
         
-        uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
-                                      help="Upload your embroidery design file in DST or U01 format", label_visibility="collapsed")
+        uploaded_file = None  # Initialize to avoid "possibly unbound" error
         
+        if entry_method == "Upload Design File" and 'file_uploader' in st.session_state:
+            uploaded_file = st.session_state.file_uploader
+            
         if uploaded_file:
             # Parse the file and save in session state
             with st.spinner("Analyzing design file..."):
                 st.session_state.design_info = parse_embroidery_file(uploaded_file)
-            
-            if st.session_state.design_info:
-                # Display design information in an expandable section
-                with st.expander("Design Information", expanded=True):
-                    col1, col2 = st.columns([1, 1])
+        
+        # Display design information in an expandable section
+        if 'design_info' in st.session_state and st.session_state.design_info:
+            with st.expander("Design Information", expanded=True):
+                col1, col2 = st.columns([1, 1])
+                
+                # Basic design metrics
+                with col1:
+                    st.metric("Stitch Count", f"{st.session_state.design_info['stitch_count']:,}")
+                    # Add thread length in yards and meters
+                    thread_yards = st.session_state.design_info['thread_length_yards']
+                    thread_meters = thread_yards * 0.9144  # Convert yards to meters
+                    st.metric("Thread Length", f"{thread_yards:.2f} yards ({thread_meters:.2f} meters)")
+                    st.metric("Colors", f"{st.session_state.design_info['color_changes']}")
+                    st.metric("Dimensions", 
+                            f"{st.session_state.design_info['width_inches']:.2f}\" × {st.session_state.design_info['height_inches']:.2f}\" " +
+                            f"({st.session_state.design_info['width_mm']:.1f}mm × {st.session_state.design_info['height_mm']:.1f}mm)")
                     
-                    # Basic design metrics
-                    with col1:
-                        st.metric("Stitch Count", f"{st.session_state.design_info['stitch_count']:,}")
-                        # Add thread length in yards and meters
-                        thread_yards = st.session_state.design_info['thread_length_yards']
-                        thread_meters = thread_yards * 0.9144  # Convert yards to meters
-                        st.metric("Thread Length", f"{thread_yards:.2f} yards ({thread_meters:.2f} meters)")
-                        st.metric("Colors", f"{st.session_state.design_info['color_changes']}")
-                        st.metric("Dimensions", 
-                                f"{st.session_state.design_info['width_inches']:.2f}\" × {st.session_state.design_info['height_inches']:.2f}\" " +
-                                f"({st.session_state.design_info['width_mm']:.1f}mm × {st.session_state.design_info['height_mm']:.1f}mm)")
-                        
-                        # Complexity score with visual indicator
-                        complexity = st.session_state.design_info['complexity_score']
-                        st.write("Design Complexity")
-                        st.progress(complexity/100)
-                        
-                        if complexity < 30:
-                            complexity_text = "Low complexity (quick, simple design)"
-                        elif complexity < 70:
-                            complexity_text = "Medium complexity"
-                        else:
-                            complexity_text = "High complexity (detailed, time-intensive)"
-                        st.caption(complexity_text)
+                    # Complexity score with visual indicator
+                    complexity = st.session_state.design_info['complexity_score']
+                    st.write("Design Complexity")
+                    st.progress(complexity/100)
                     
-                    # Design preview
-                    with col2:
+                    if complexity < 30:
+                        complexity_text = "Low complexity (quick, simple design)"
+                    elif complexity < 70:
+                        complexity_text = "Medium complexity"
+                    else:
+                        complexity_text = "High complexity (detailed, time-intensive)"
+                    st.caption(complexity_text)
+                
+                # Design preview (only for uploaded files, not manual entry)
+                with col2:
+                    if st.session_state.design_info["pattern"] is not None:
                         # Checkbox for foam preview
                         preview_with_foam = st.checkbox("Preview with 3D foam margin", value=False)
                         
@@ -858,6 +893,27 @@ def main():
                             use_foam=preview_with_foam
                         )
                         st.image(preview_img, caption="Design Preview", use_container_width=True)
+                    else:
+                        # Show placeholder for manual entry
+                        st.markdown("""
+                        <div style="
+                            background-color: #f8f8f8;
+                            border: 1px dashed #ddd;
+                            border-radius: 10px;
+                            padding: 30px;
+                            text-align: center;
+                            height: 250px;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+                            align-items: center;
+                        ">
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M13 7h-2v2h2V7zm0 4h-2v6h2v-6zm-1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="#ccc"/>
+                            </svg>
+                            <p style="color: #888; margin-top: 15px;">No design preview available for manual entry</p>
+                        </div>
+                        """, unsafe_allow_html=True)
         
         # Step 2: Job Information & Materials
         st.header("Step 2: Job Information & Materials")
@@ -1107,7 +1163,7 @@ def main():
         with col2:
             calculate_pressed = st.button("Calculate Quote", type="primary", key="calculate_button")
         
-        if calculate_pressed and st.session_state.design_info:
+        if calculate_pressed and 'design_info' in st.session_state:
             # Gather all inputs
             job_inputs = {
                 "job_name": job_name,
@@ -1135,10 +1191,15 @@ def main():
                 cost_results = calculate_costs(st.session_state.design_info, job_inputs)
             
             # Save to history
+            if st.session_state.design_info is not None:
+                design_info_copy = st.session_state.design_info.copy()
+            else:
+                design_info_copy = {}
+                
             history_entry = {
                 "timestamp": datetime.datetime.now(),
                 "job_name": job_name if job_name else f"Quote {len(st.session_state.history) + 1}",
-                "design_info": st.session_state.design_info.copy(),
+                "design_info": design_info_copy,
                 "job_inputs": job_inputs.copy(),
                 "cost_results": cost_results.copy()
             }
@@ -1363,8 +1424,8 @@ def main():
                 </a>
                 ''', unsafe_allow_html=True)
         
-        elif calculate_pressed and not st.session_state.design_info:
-            st.error("Please upload a DST file first to generate a quote.")
+        elif calculate_pressed and ('design_info' not in st.session_state or not st.session_state.design_info):
+            st.error("Please upload a design file or complete the manual entry form to generate a quote.")
     
     # History Tab
     with tab2:
