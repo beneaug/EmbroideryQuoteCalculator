@@ -1488,8 +1488,9 @@ def main():
                     st.stop()
                 
                 # Create a temporary marker file to prevent duplicate processing
+                import time as time_module  # Local import to ensure availability
                 with open(auth_state_path, 'w') as f:
-                    f.write(f"Processing auth code at {time.time()}")
+                    f.write(f"Processing auth code at {time_module.time()}")
                 
                 # Exchange the authorization code for tokens
                 try:
@@ -1502,7 +1503,7 @@ def main():
                     database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
                     
                     # Save tokens to database with proper expiration
-                    token_expiration = time.time() + auth_client.expires_in
+                    token_expiration = time_module.time() + auth_client.expires_in
                     database.update_quickbooks_token("QB_ACCESS_TOKEN", auth_client.access_token, token_expiration)
                     database.update_quickbooks_token("QB_REFRESH_TOKEN", auth_client.refresh_token)
                     
