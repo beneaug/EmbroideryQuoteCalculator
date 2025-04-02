@@ -3365,7 +3365,7 @@ def main():
                 else:
                     st.info("No workers found. Add your first worker using the form above.")
         
-        # QuickBooks Settings - Simplified & Direct Approach
+        # QuickBooks Settings - Standard OAuth Approach with Backend Service
         with st.expander("QuickBooks Integration Settings"):
             st.subheader("QuickBooks API Configuration")
             
@@ -3390,18 +3390,19 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # A more streamlined explanation for the simplified approach
+            # Standard OAuth approach explanation
             st.markdown("""
-            ### 📋 Simplified Connection Instructions
+            ### 📋 Standard OAuth Connection
             
-            We've simplified the QuickBooks connection to be more reliable:
+            This application uses a secure backend OAuth service to properly connect with QuickBooks:
             
-            1. Go to your [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)
-            2. Get your API keys and enter them below
-            3. Directly enter your access token and refresh token
-            4. Save your settings
+            1. Enter your QuickBooks developer credentials below
+            2. Save your settings
+            3. Click "Connect to QuickBooks" 
+            4. You'll be redirected to QuickBooks to authorize
+            5. After authorization, you'll be redirected back automatically
             
-            This direct method bypasses the complex authorization flow that was causing issues.
+            This standard approach follows best practices for OAuth2 authentication.
             """)
             
             # Create columns for the form
@@ -3431,67 +3432,73 @@ def main():
                     help="QuickBooks API Client Secret from Intuit Developer dashboard"
                 )
                 
-                # Realm ID (Company ID)
-                realm_id = st.text_input(
-                    "Company ID (Realm ID)", 
-                    value=qb_settings.get('QB_REALM_ID', {}).get('value', ''),
-                    help="QuickBooks company ID (found in Account settings or API dashboard)"
-                )
-            
-            with col2:
-                # Direct token entry - the new simplified approach
-                # Access Token
-                access_token = st.text_input(
-                    "Access Token",
-                    value=qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', ''),
-                    type="password", 
-                    help="Enter your QuickBooks access token directly (from developer dashboard)"
-                )
-                
-                # Refresh Token
-                refresh_token = st.text_input(
-                    "Refresh Token",
-                    value=qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', ''),
-                    type="password",
-                    help="Enter your QuickBooks refresh token directly (from developer dashboard)"
-                )
-                
-                # Optional: Token expiration
-                token_expiry = st.text_input(
-                    "Token Expiry (optional)",
-                    help="Enter token expiry in seconds from now (leave empty to use default 3600)"
-                )
-                
-                # Auto-detect the current Replit URL for reference only
+                # Auto-detect the current Replit URL
                 import os
                 replit_domain = os.environ.get("REPLIT_DOMAIN", "")
                 default_redirect = f"https://{replit_domain}" if replit_domain else "http://localhost:5000"
                 
-                # Show redirect URI just for reference
-                st.info(f"Your application URL: {default_redirect}\n\nUse this in your Intuit Developer Dashboard.")
+                # OAuth server URL
+                oauth_server_url = f"http://localhost:5001" if not replit_domain else f"https://{replit_domain.split('-')[0]}-5001.{'.'.join(replit_domain.split('.')[1:])}"
                 
-            # Instructions for getting tokens - using a non-expander approach to avoid nesting issues
-            st.markdown("#### 📋 How to get Access and Refresh Tokens")
-            with st.container():
+                # Show redirect URI info
                 st.markdown("""
-                1. **Set up your app in the [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)**
-                   - Create an app with the redirect URL shown above
-                   - Select the accounting scope
+                ### Important Redirect URI Information
                 
-                2. **Use the OAuth 2.0 Playground**
-                   - Go to the OAuth Playground in your app settings
-                   - Authenticate with your QuickBooks account
-                   - Copy the access token and refresh token
-                   
-                3. **Enter tokens here**
-                   - Paste the tokens in the fields above
-                   - Save your settings
-                   
-                This manual approach bypasses the complex OAuth redirect flow, making the integration more reliable.
+                For QuickBooks OAuth to work properly, you must configure these two URIs in your Intuit Developer Dashboard:
+                """)
+                
+                st.code(f"{oauth_server_url}/api/quickbooks/callback", language="text")
+                st.code(f"{default_redirect}", language="text")
+                
+                st.markdown("""
+                The first URI is for initial authorization, and the second is where you'll be redirected after success.
                 """)
             
+            with col2:
+                # Token information display
+                if auth_status:
+                    access_token_info = qb_settings.get('QB_ACCESS_TOKEN', {})
+                    if access_token_info and 'expires_at' in access_token_info and access_token_info['expires_at']:
+                        import time
+                        try:
+                            expires_at = float(access_token_info['expires_at'])
+                            now = time.time()
+                            if expires_at > now:
+                                minutes_left = int((expires_at - now) / 60)
+                                st.info(f"✅ Access token is valid\nExpires in approximately {minutes_left} minutes")
+                            else:
+                                st.warning("⚠️ Access token has expired\nClick 'Connect to QuickBooks' to refresh")
+                        except:
+                            st.warning("⚠️ Invalid token expiration format")
+                
+                # Realm ID display if available
+                realm_id = qb_settings.get('QB_REALM_ID', {}).get('value', '')
+                if realm_id:
+                    st.success(f"✅ Connected to QuickBooks company ID: {realm_id}")
+                    
+                # Display connection information
+                if auth_status:
+                    st.markdown("""
+                    ### Connection Success
+                    
+                    Your application is successfully connected to QuickBooks. 
+                    You can now export quotes to QuickBooks Estimates.
+                    
+                    If you experience any connection issues, use the 'Connect to QuickBooks' 
+                    button below to refresh your connection.
+                    """)
+                else:
+                    st.markdown("""
+                    ### Connection Required
+                    
+                    Your application needs to be connected to QuickBooks.
+                    
+                    1. Save your QuickBooks settings below
+                    2. Click the 'Connect to QuickBooks' button
+                    """)
+            
             # Create columns for the buttons
-            button_col1, button_col2 = st.columns(2)
+            button_col1, button_col2, button_col3 = st.columns(3)
             
             # Save settings button
             with button_col1:
@@ -3500,31 +3507,11 @@ def main():
                     # Update settings in database
                     database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
                     database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
-                    database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
                     database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect)
                     database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
                     
-                    # Calculate token expiration if provided
-                    token_expires_at = None
-                    if token_expiry and token_expiry.strip():
-                        try:
-                            import time
-                            token_expires_at = time.time() + int(token_expiry.strip())
-                        except:
-                            st.warning("Invalid token expiry format. Using default.")
-                    
-                    # Save tokens with expiration if provided
-                    if access_token:
-                        if token_expires_at:
-                            database.update_quickbooks_token("QB_ACCESS_TOKEN", access_token, token_expires_at)
-                        else:
-                            database.update_quickbooks_token("QB_ACCESS_TOKEN", access_token)
-                    
-                    if refresh_token:
-                        database.update_quickbooks_token("QB_REFRESH_TOKEN", refresh_token)
-                    
                     st.success("QuickBooks settings saved successfully!")
-                    st.info("The page will refresh in 2 seconds to verify connection...")
+                    st.info("The page will refresh in 2 seconds...")
                     
                     # Add a slight delay before refreshing to show the success message
                     import time
@@ -3533,48 +3520,85 @@ def main():
                     # Force Streamlit to rerun and update status
                     st.rerun()
             
-            # Test connection button
+            # Connect to QuickBooks button
             with button_col2:
+                import requests
+                connect_button = st.button("Connect to QuickBooks", 
+                                      type="primary",
+                                      help="Start the QuickBooks authorization process",
+                                      disabled=not (client_id and client_secret))
+                if connect_button:
+                    with st.spinner("Preparing QuickBooks authorization..."):
+                        try:
+                            # Call the OAuth service to get an authorization URL
+                            params = {
+                                'client_id': client_id,
+                                'client_secret': client_secret,
+                                'redirect_uri': default_redirect,
+                                'environment': environment
+                            }
+                            
+                            response = requests.get(f"{oauth_server_url}/api/quickbooks/auth", params=params)
+                            
+                            if response.status_code == 200 and response.json().get('success'):
+                                auth_data = response.json()
+                                auth_url = auth_data['auth_url']
+                                
+                                st.success("Authorization URL generated successfully!")
+                                st.info("You will be redirected to QuickBooks for authorization...")
+                                
+                                # Add a success message with a redirect
+                                st.markdown(f"""
+                                <a href="{auth_url}" target="_self" style="
+                                    display: inline-block;
+                                    background-color: #2ea44f;
+                                    color: white;
+                                    padding: 10px 20px;
+                                    text-decoration: none;
+                                    font-weight: bold;
+                                    border-radius: 4px;
+                                    margin-top: 10px;
+                                ">
+                                    Click here to authorize with QuickBooks
+                                </a>
+                                """, unsafe_allow_html=True)
+                                
+                                # Script for automatic redirect
+                                st.markdown(f"""
+                                <script>
+                                    window.top.location.href = "{auth_url}";
+                                </script>
+                                """, unsafe_allow_html=True)
+                            else:
+                                error_msg = response.json().get('error', 'Unknown error')
+                                st.error(f"Failed to generate authorization URL: {error_msg}")
+                        except Exception as e:
+                            st.error(f"Error connecting to OAuth service: {str(e)}")
+                            st.info("Please make sure the OAuth server is running on port 5001")
+            
+            # Test connection button
+            with button_col3:
                 test_button = st.button("Test Connection", 
                                      help="Test the QuickBooks connection with current settings")
                 if test_button:
-                    # Simple verification of saved values
-                    has_client_id = bool(qb_settings.get('QB_CLIENT_ID', {}).get('value', ''))
-                    has_client_secret = bool(qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''))
-                    has_realm_id = bool(qb_settings.get('QB_REALM_ID', {}).get('value', ''))
-                    has_access_token = bool(qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', ''))
-                    has_refresh_token = bool(qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', ''))
-                    
                     # Display info about current settings
-                    st.info("Checking connection with current settings...")
-                    
-                    # Show warning about missing values
-                    if not (has_client_id and has_client_secret and has_realm_id):
-                        st.warning("Missing basic settings: Client ID, Client Secret, or Realm ID is empty")
-                    
-                    if not (has_access_token and has_refresh_token):
-                        st.warning("Missing tokens: Access Token or Refresh Token is empty")
-                    
-                    # Test QuickBooks client
-                    if has_client_id and has_client_secret and has_realm_id and has_access_token:
-                        with st.spinner("Testing connection to QuickBooks API..."):
-                            client, error = get_quickbooks_client()
-                            
-                            if client:
-                                st.success("✅ Successfully connected to QuickBooks API!")
-                                
-                                # Try a simple API call to further verify
-                                try:
-                                    from quickbooks.objects.company import Company
-                                    company_info = Company.all(qb=client)
-                                    st.success(f"✅ Successfully retrieved company information")
-                                except Exception as e:
-                                    st.error(f"Connection established but API call failed: {str(e)}")
-                            else:
-                                st.error(f"Failed to connect to QuickBooks: {error}")
-                    else:
-                        st.error("Cannot test connection: Missing required settings")
+                    with st.spinner("Testing connection to QuickBooks API..."):
+                        # Test QuickBooks client
+                        client, error = get_quickbooks_client()
                         
+                        if client:
+                            st.success("✅ Successfully connected to QuickBooks API!")
+                            
+                            # Try a simple API call to further verify
+                            try:
+                                from quickbooks.objects.company import Company
+                                company_info = Company.all(qb=client)
+                                st.success(f"✅ Successfully retrieved company information")
+                            except Exception as e:
+                                st.error(f"Connection established but API call failed: {str(e)}")
+                        else:
+                            st.error(f"Failed to connect to QuickBooks: {error}")
+            
             # Reset button
             if st.button("Reset QuickBooks Authentication", help="Clear all QuickBooks tokens"):
                 if database.reset_quickbooks_auth():
@@ -3582,6 +3606,83 @@ def main():
                     st.rerun()
                 else:
                     st.error("Failed to reset QuickBooks authentication")
+            
+            # Check if success parameter is in URL - this happens when returning from OAuth flow
+            import streamlit.components.v1 as components
+            
+            # JavaScript to extract URL parameters and notify Streamlit
+            components.html("""
+            <script>
+                // Function to get query parameters
+                function getUrlParameter(name) {
+                    name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+                    var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+                    var results = regex.exec(location.search);
+                    return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+                }
+                
+                // Check for success parameter
+                var success = getUrlParameter('success');
+                var error = getUrlParameter('error');
+                var realm_id = getUrlParameter('realm_id');
+                
+                // Send data to Streamlit using session storage
+                if (success || error) {
+                    sessionStorage.setItem('oauth_success', success);
+                    sessionStorage.setItem('oauth_error', error);
+                    sessionStorage.setItem('oauth_realm_id', realm_id);
+                    
+                    // Clear the URL parameters after storing them
+                    if (window.history.replaceState) {
+                        // Remove query parameters but keep the path
+                        var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+                        window.history.replaceState({path: newUrl}, '', newUrl);
+                    }
+                    
+                    // Force refresh to apply UI changes
+                    window.location.reload();
+                }
+                
+                // For immediate feedback, check stored values
+                var storedSuccess = sessionStorage.getItem('oauth_success');
+                if (storedSuccess === 'true') {
+                    // Create and show a success message
+                    var successDiv = document.createElement('div');
+                    successDiv.style.backgroundColor = '#d4edda';
+                    successDiv.style.color = '#155724';
+                    successDiv.style.padding = '10px';
+                    successDiv.style.borderRadius = '4px';
+                    successDiv.style.marginBottom = '10px';
+                    successDiv.innerHTML = '<strong>Success!</strong> QuickBooks authorization completed successfully.';
+                    document.body.prepend(successDiv);
+                    
+                    // Clear the stored values after showing them once
+                    sessionStorage.removeItem('oauth_success');
+                    sessionStorage.removeItem('oauth_error');
+                    sessionStorage.removeItem('oauth_realm_id');
+                    
+                    // Refresh the page again after a short delay to show updated status
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
+                } else if (storedSuccess === 'false') {
+                    var errorMsg = sessionStorage.getItem('oauth_error') || 'Unknown error';
+                    var errorDiv = document.createElement('div');
+                    errorDiv.style.backgroundColor = '#f8d7da';
+                    errorDiv.style.color = '#721c24';
+                    errorDiv.style.padding = '10px';
+                    errorDiv.style.borderRadius = '4px';
+                    errorDiv.style.marginBottom = '10px';
+                    errorDiv.innerHTML = '<strong>Error!</strong> QuickBooks authorization failed: ' + errorMsg;
+                    document.body.prepend(errorDiv);
+                    
+                    // Clear the stored values
+                    sessionStorage.removeItem('oauth_success');
+                    sessionStorage.removeItem('oauth_error');
+                    sessionStorage.removeItem('oauth_realm_id');
+                }
+            </script>
+            """, height=0)
             
             # Add info about required QuickBooks setup
             st.markdown("""
