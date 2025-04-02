@@ -75,11 +75,14 @@ def quickbooks_auth():
     clean_old_states()
     
     # Build the OAuth URL with standard parameters
+    # Use the direct callback URL instead of building from request.host_url
+    callback_url = "http://localhost:5001/api/quickbooks/callback"
+    
     params = {
         'client_id': client_id,
         'response_type': 'code',
         'scope': 'com.intuit.quickbooks.accounting',
-        'redirect_uri': f"{request.host_url.rstrip('/')}/api/quickbooks/callback",
+        'redirect_uri': callback_url,
         'state': state
     }
     
@@ -117,7 +120,7 @@ def quickbooks_callback():
     token_data = {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': f"{request.host_url.rstrip('/')}/api/quickbooks/callback"
+        'redirect_uri': "http://localhost:5001/api/quickbooks/callback"
     }
     
     headers = {
@@ -277,5 +280,11 @@ if __name__ == '__main__':
     print(f"Starting OAuth server on port {port}")
     print(f"Make sure to update your QuickBooks redirect URI in the Developer Dashboard")
     
-    # Start the server
-    app.run(host=host, port=port, debug=True)
+    # Start the server without debug mode for better stability
+    try:
+        app.run(host=host, port=port, debug=False)
+    except Exception as e:
+        print(f"Error starting OAuth server: {str(e)}")
+        # Try again with different settings if it fails
+        print("Trying alternative configuration...")
+        app.run(host=host, port=port, debug=False, use_reloader=False)

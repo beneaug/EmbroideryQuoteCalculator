@@ -3437,8 +3437,8 @@ def main():
                 replit_domain = os.environ.get("REPLIT_DOMAIN", "")
                 default_redirect = f"https://{replit_domain}" if replit_domain else "http://localhost:5000"
                 
-                # OAuth server URL
-                oauth_server_url = f"http://localhost:5001" if not replit_domain else f"https://{replit_domain.split('-')[0]}-5001.{'.'.join(replit_domain.split('.')[1:])}"
+                # OAuth server URL - use internal network in Replit environment
+                oauth_server_url = "http://localhost:5001"  # Direct connection in same container
                 
                 # Show redirect URI info
                 st.markdown("""
