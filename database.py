@@ -100,6 +100,92 @@ def get_labor_settings():
             "HOURLY_LABOR_RATE": {"value": 25, "description": "Hourly labor rate ($/hour)"}
         }
 
+def get_labor_workers():
+    """Get all labor workers from the database"""
+    try:
+        with get_connection() as conn:
+            query = "SELECT id, name, hourly_rate, is_active FROM labor_workers ORDER BY name"
+            result = conn.execute(text(query))
+            workers = [dict(zip(["id", "name", "hourly_rate", "is_active"], row)) for row in result]
+            return workers
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        return []
+
+def add_labor_worker(name, hourly_rate, is_active=True):
+    """Add a new labor worker to the database"""
+    try:
+        with get_connection() as conn:
+            query = """
+            INSERT INTO labor_workers (name, hourly_rate, is_active) 
+            VALUES (:name, :hourly_rate, :is_active)
+            RETURNING id
+            """
+            result = conn.execute(text(query), {
+                "name": name, 
+                "hourly_rate": hourly_rate, 
+                "is_active": is_active
+            })
+            worker_id = result.fetchone()[0]
+            conn.commit()
+            return worker_id
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        return None
+
+def update_labor_worker(worker_id, name=None, hourly_rate=None, is_active=None):
+    """Update a labor worker in the database"""
+    try:
+        with get_connection() as conn:
+            # Build the query dynamically based on which fields are provided
+            update_parts = []
+            params = {"id": worker_id}
+            
+            if name is not None:
+                update_parts.append("name = :name")
+                params["name"] = name
+            
+            if hourly_rate is not None:
+                update_parts.append("hourly_rate = :hourly_rate")
+                params["hourly_rate"] = hourly_rate
+            
+            if is_active is not None:
+                update_parts.append("is_active = :is_active")
+                params["is_active"] = is_active
+            
+            # If no fields were provided, return
+            if not update_parts:
+                return False
+            
+            # Add the updated_at timestamp
+            update_parts.append("updated_at = CURRENT_TIMESTAMP")
+            
+            # Construct the final query
+            query = f"""
+            UPDATE labor_workers 
+            SET {", ".join(update_parts)}
+            WHERE id = :id
+            """
+            
+            conn.execute(text(query), params)
+            conn.commit()
+            return True
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        return False
+
+def delete_labor_worker(worker_id):
+    """Delete a labor worker from the database"""
+    try:
+        with get_connection() as conn:
+            query = "DELETE FROM labor_workers WHERE id = :id"
+            conn.execute(text(query), {"id": worker_id})
+            conn.commit()
+            return True
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        return False
+
 def update_setting(table, name, value):
     """Update a setting in the database"""
     try:

@@ -268,6 +268,7 @@ def calculate_costs(design_info, job_inputs):
     setup_fee = job_inputs["setup_fee"]
     stitch_speed = DEFAULT_STITCH_SPEED_40WT if thread_weight == "40wt" else DEFAULT_STITCH_SPEED_60WT
     coloreel_enabled = job_inputs["coloreel_enabled"]
+    selected_workers = job_inputs.get("selected_workers", [])
     
     # 1. Thread consumption & cost
     thread_per_piece_yards = thread_length_yards
@@ -334,7 +335,19 @@ def calculate_costs(design_info, job_inputs):
     total_production_time_hours = total_production_time_minutes / 60
     
     # 6. Labor cost
-    labor_cost = total_production_time_hours * HOURLY_LABOR_RATE
+    # Use selected workers' rates if any are selected, otherwise use default rate
+    if selected_workers:
+        # Calculate average hourly rate of selected workers
+        total_rate = sum(worker['hourly_rate'] for worker in selected_workers)
+        avg_rate = total_rate / len(selected_workers)
+        labor_cost = total_production_time_hours * avg_rate
+        
+        # Add worker information to results
+        worker_info = [{"name": w["name"], "rate": w["hourly_rate"]} for w in selected_workers]
+    else:
+        # Use default labor rate
+        labor_cost = total_production_time_hours * HOURLY_LABOR_RATE
+        worker_info = [{"name": "Default Labor", "rate": HOURLY_LABOR_RATE}]
     
     # 7. Total costs
     material_cost = thread_cost + bobbin_cost + stabilizer_cost + foam_cost
@@ -367,7 +380,8 @@ def calculate_costs(design_info, job_inputs):
         "runs_needed": runs_needed,
         "spools_required": spools_required,
         "bobbins_required": bobbins_required,
-        "productivity_rate": productivity_rate
+        "productivity_rate": productivity_rate,
+        "worker_info": worker_info
     }
 
 def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
@@ -977,8 +991,15 @@ def main():
                 # Design preview (only for uploaded files, not manual entry)
                 with col2:
                     if st.session_state.design_info["pattern"] is not None:
-                        # Checkbox for foam preview
-                        preview_with_foam = st.checkbox("Preview with 3D foam margin", value=False)
+                        # Checkbox for foam preview (default to 'use_foam' value if it exists in session state)
+                        if 'use_foam' in st.session_state:
+                            preview_with_foam = st.checkbox("Preview with 3D foam margin", value=st.session_state.use_foam)
+                        else:
+                            preview_with_foam = st.checkbox("Preview with 3D foam margin", value=False)
+                        
+                        # If preview_with_foam is checked, also update the 'use_foam' checkbox later in the form
+                        if preview_with_foam:
+                            st.session_state.use_foam = True
                         
                         # Generate and display preview
                         preview_img = render_design_preview(
@@ -1083,13 +1104,19 @@ def main():
                                        help="Enable if using Coloreel instant thread coloring technology")
             
             # Complex production checkbox - auto-check if Coloreel is enabled
+            # When coloreel is enabled, complex_production should be automatically enabled but still adjustable
             complex_production = st.checkbox("Complex Production", 
                                          value=coloreel_enabled,  # Auto-check if Coloreel is enabled
                                          help="Enable for complex designs that require slower stitching and additional attention")
             
-            # Custom productivity rate slider (only shown when complex production is enabled)
+            # If coloreel is enabled, complex production should also be enabled
+            if coloreel_enabled and not complex_production:
+                complex_production = True
+                st.session_state["complex_production"] = True
+            
+            # Custom productivity rate slider (always shown when coloreel is enabled or complex production is enabled)
             custom_productivity_rate = None
-            if complex_production:
+            if complex_production or coloreel_enabled:
                 # If Coloreel is enabled, display the Coloreel rate info
                 if coloreel_enabled:
                     # Override custom productivity rate with Coloreel rate
@@ -1118,7 +1145,12 @@ def main():
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
             if coloreel_enabled and active_heads > coloreel_max_heads:
                 active_heads = coloreel_max_heads
-                st.warning(f"Max heads limited to {coloreel_max_heads} with Coloreel enabled")
+                # Use custom HTML for a brighter yellow warning that's more visible on warm background
+                st.markdown(f"""
+                <div style="background-color: #FFF2CC; border-left: 4px solid #FFD700; color: #775500; padding: 10px; border-radius: 10px; margin: 10px 0; font-weight: 500;">
+                    ⚠️ Max heads limited to {coloreel_max_heads} with Coloreel enabled
+                </div>
+                """, unsafe_allow_html=True)
                 
             # Calculate the final productivity rate based on all settings
             if not complex_production:
@@ -1187,8 +1219,13 @@ def main():
                                          index=["Cutaway", "Tearaway", "Water Soluble", "Heat Away", "None"].index(default_stabilizer),
                                          help="Type of backing used to stabilize the fabric during embroidery")
         
-        use_foam = st.checkbox("Use 3D Foam", value=False,
+        # Use the session state value if it exists, otherwise default to False
+        default_foam_value = st.session_state.get('use_foam', False)
+        use_foam = st.checkbox("Use 3D Foam", value=default_foam_value,
                              help="Check if using 3D foam for raised embroidery effect")
+        
+        # Update session state to keep in sync with preview checkbox
+        st.session_state.use_foam = use_foam
         
         # Pricing Information Card with enhanced styling
         st.markdown("""
@@ -1208,23 +1245,60 @@ def main():
         
         with col1:
             markup_percentage = st.slider("Markup Percentage", 0, 200, 40,
-                                       help="Profit margin percentage to add to direct costs")
+                                      help="Profit margin percentage to add to direct costs")
             
             # Show digitizing fee input if complex production is enabled
             digitizing_fee = 0.0
             if complex_production:
                 digitizing_fee = st.number_input("Digitizing Fee ($)", 
-                                              min_value=0.0, 
-                                              value=float(DEFAULT_DIGITIZING_FEE), 
-                                              step=5.0,
-                                              help="Fee for digitizing complex designs")
+                                             min_value=0.0, 
+                                             value=float(DEFAULT_DIGITIZING_FEE), 
+                                             step=5.0,
+                                             help="Fee for digitizing complex designs")
+            
+            # Labor worker selection
+            workers = database.get_labor_workers()
+            active_workers = [w for w in workers if w['is_active']]
+            
+            if active_workers:
+                st.markdown("""
+                <div style="margin-top: 20px;">
+                    <h4 style="font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #3a1d0d; margin-bottom: 8px;">
+                        Active Labor Workers
+                    </h4>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Display active workers with checkboxes
+                selected_workers = []
+                for worker in active_workers:
+                    is_selected = st.checkbox(
+                        f"{worker['name']} (${worker['hourly_rate']:.2f}/hr)", 
+                        value=True,
+                        key=f"worker_select_{worker['id']}"
+                    )
+                    if is_selected:
+                        selected_workers.append(worker)
+                
+                # Option to show all workers
+                if len(workers) > len(active_workers):
+                    with st.expander("Show All Workers"):
+                        inactive_workers = [w for w in workers if not w['is_active']]
+                        for worker in inactive_workers:
+                            is_selected = st.checkbox(
+                                f"{worker['name']} (${worker['hourly_rate']:.2f}/hr)", 
+                                value=False,
+                                key=f"worker_select_{worker['id']}"
+                            )
+                            if is_selected:
+                                selected_workers.append(worker)
         
         with col2:
             setup_fee = st.number_input("Setup Fee ($)", 
-                                     min_value=0.0, 
-                                     value=0.0, 
-                                     step=5.0,
-                                     help="One-time fee for setup, etc.")
+                                    min_value=0.0, 
+                                    value=0.0, 
+                                    step=5.0,
+                                    help="One-time fee for setup, etc.")
         
         # Calculate Button with enhanced styling
         st.markdown("""
@@ -1275,7 +1349,8 @@ def main():
                 "markup_percentage": markup_percentage,
                 "setup_fee": setup_fee,
                 "digitizing_fee": digitizing_fee if 'digitizing_fee' in locals() else 0.0,
-                "custom_productivity_rate": custom_productivity_rate if 'custom_productivity_rate' in locals() and custom_productivity_rate is not None else None
+                "custom_productivity_rate": custom_productivity_rate if 'custom_productivity_rate' in locals() and custom_productivity_rate is not None else None,
+                "selected_workers": selected_workers if 'selected_workers' in locals() else []
             }
             
             # Calculate all costs
@@ -1439,6 +1514,19 @@ def main():
                     # Show digitizing fee if applicable
                     if job_inputs.get("complex_production", False) and cost_results.get("digitizing_fee", 0) > 0:
                         st.metric("Digitizing Fee", f"${cost_results['digitizing_fee']:.2f}")
+                
+                # Display labor workers if any are selected
+                if "worker_info" in cost_results and cost_results["worker_info"]:
+                    st.subheader("Labor Information")
+                    
+                    # Create a simple table to display worker information
+                    worker_data = {
+                        "Worker": [w["name"] for w in cost_results["worker_info"]],
+                        "Hourly Rate": [f"${w['rate']:.2f}" for w in cost_results["worker_info"]]
+                    }
+                    
+                    worker_df = pd.DataFrame(worker_data)
+                    st.dataframe(worker_df, use_container_width=True)
             
             # Generate PDFs
             detailed_pdf = generate_detailed_quote_pdf(st.session_state.design_info, job_inputs, cost_results)
@@ -1757,19 +1845,140 @@ def main():
         
         # Labor Settings
         with st.expander("Labor Settings"):
+            st.subheader("Default Labor Rate")
             new_hourly_labor_rate = st.number_input(
-                "Hourly Labor Rate ($)",
+                "Default Hourly Labor Rate ($)",
                 min_value=1.0,
                 value=float(HOURLY_LABOR_RATE),
                 format="%.2f",
-                help="Cost of labor per hour"
+                help="Default cost of labor per hour"
             )
             
-            if st.button("Update Labor Settings"):
+            if st.button("Update Default Labor Rate"):
                 # Update database
                 database.update_setting("labor_settings", "HOURLY_LABOR_RATE", new_hourly_labor_rate)
-                st.success("Labor settings updated successfully!")
+                st.success("Default labor rate updated successfully!")
                 labor_settings_updated = True
+                
+            # Horizontal line to separate default rate from worker management
+            st.markdown("---")
+            
+            # Labor Workers Management
+            st.subheader("Labor Workers Management")
+            st.markdown("Create, update, or remove laborers with individual hourly rates.")
+            
+            # Get existing workers from database
+            workers = database.get_labor_workers()
+            
+            # New worker form
+            with st.form("add_worker_form"):
+                st.subheader("Add New Worker")
+                new_worker_name = st.text_input("Worker Name")
+                new_worker_rate = st.number_input("Hourly Rate ($)", min_value=1.0, value=float(HOURLY_LABOR_RATE), format="%.2f")
+                new_worker_active = st.checkbox("Active by Default", value=True, help="If checked, this worker will be active by default in new quotes")
+                
+                add_worker_submitted = st.form_submit_button("Add Worker", type="primary")
+                if add_worker_submitted and new_worker_name:
+                    worker_id = database.add_labor_worker(new_worker_name, new_worker_rate, new_worker_active)
+                    if worker_id:
+                        st.success(f"Worker '{new_worker_name}' added successfully!")
+                        # Refresh the page to show the new worker
+                        st.rerun()
+                    else:
+                        st.error("Failed to add worker. Please try again.")
+            
+            # Display existing workers
+            if workers:
+                st.subheader("Existing Workers")
+                
+                # Custom CSS for worker cards
+                st.markdown("""
+                <style>
+                .worker-card {
+                    border: 1px solid #f3770c;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin-bottom: 15px;
+                    background-color: #fff9f0;
+                }
+                .worker-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 10px;
+                }
+                .worker-name {
+                    font-weight: bold;
+                    font-size: 16px;
+                    color: #3a1d0d;
+                }
+                .worker-rate {
+                    color: #f3770c;
+                    font-weight: bold;
+                }
+                .worker-status {
+                    font-size: 14px;
+                    padding: 3px 8px;
+                    border-radius: 12px;
+                    display: inline-block;
+                }
+                .status-active {
+                    background-color: #d4edda;
+                    color: #155724;
+                }
+                .status-inactive {
+                    background-color: #f8d7da;
+                    color: #721c24;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                # Loop through workers and display in expandable cards
+                for worker in workers:
+                    with st.expander(f"{worker['name']} - ${worker['hourly_rate']:.2f}/hr - {'Active' if worker['is_active'] else 'Inactive'}"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Edit form for this worker
+                            edited_name = st.text_input("Name", value=worker['name'], key=f"name_{worker['id']}")
+                            edited_rate = st.number_input("Hourly Rate ($)", 
+                                                      min_value=1.0, 
+                                                      value=float(worker['hourly_rate']), 
+                                                      format="%.2f", 
+                                                      key=f"rate_{worker['id']}")
+                        
+                        with col2:
+                            edited_active = st.checkbox("Active", 
+                                                    value=worker['is_active'], 
+                                                    key=f"active_{worker['id']}")
+                            
+                            # Save changes button
+                            if st.button("Save Changes", key=f"save_{worker['id']}"):
+                                success = database.update_labor_worker(
+                                    worker['id'], 
+                                    name=edited_name,
+                                    hourly_rate=edited_rate,
+                                    is_active=edited_active
+                                )
+                                if success:
+                                    st.success(f"Worker '{edited_name}' updated successfully!")
+                                    # Refresh the page to show updated data
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to update worker. Please try again.")
+                        
+                        # Delete button (with confirmation)
+                        if st.button("Delete Worker", key=f"delete_{worker['id']}"):
+                            if st.checkbox("Confirm deletion? This cannot be undone.", key=f"confirm_{worker['id']}"):
+                                success = database.delete_labor_worker(worker['id'])
+                                if success:
+                                    st.success(f"Worker '{worker['name']}' deleted successfully!")
+                                    # Refresh the page to update the list
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete worker. Please try again.")
+            else:
+                st.info("No workers found. Add your first worker using the form above.")
         
         # View Database Quotes
         with st.expander("View Quote Database"):

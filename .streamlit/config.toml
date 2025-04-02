@@ -5,10 +5,6 @@ port = 5000
 
 [theme]
 primaryColor = "#f3770c"
-backgroundColor = "#ffecc6"
-secondaryBackgroundColor = "#fcd587"
+backgroundColor = "#fff9e6"
+secondaryBackgroundColor = "#fff9f0"
 textColor = "#3a1d0d"
-font = "sans serif"
-
-[global]
-showSidebarNavigation = false
