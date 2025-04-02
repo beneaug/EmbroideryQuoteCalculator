@@ -1,0 +1,58 @@
+That “The authorization code has expired or already been used” error means QuickBooks is rejecting the OAuth authorization code you’re sending for token exchange. In OAuth 2.0 with QuickBooks, each authorization code:
+	•	Can only be used once (if you try to exchange it again, you’ll get invalid_grant), and
+	•	Expires after 10 minutes (if you wait too long, it’s invalid).
+
+Below are the most common causes and how to fix them:
+
+⸻
+
+1. Double Exchange or Page Refresh
+	•	Symptom: You see the error after a page refresh, or if your callback route runs its exchange logic more than once.
+	•	Fix:
+	1.	Ensure that your code only calls get_bearer_token() (or whichever token-exchange method) once.
+	2.	If your callback page automatically triggers the token exchange on load, a simple browser refresh will re-send the same code, causing the error.
+	3.	Consider storing the newly acquired tokens in session or database, then redirecting the user to a “success” page—so the token exchange logic does not run again on a refresh.
+
+⸻
+
+2. Code Expires After 10 Minutes
+	•	Symptom: If you leave the QuickBooks login or consent screen open for a while, or if there’s a delay before your server attempts the token exchange, the code may expire.
+	•	Fix:
+	1.	Complete the OAuth flow in one go—no long delays between obtaining the code and exchanging it.
+	2.	If you need more time, simply restart the OAuth flow to get a fresh code.
+
+⸻
+
+3. Mismatch in Redirect URIs or Credentials
+	•	Symptom: QuickBooks sees the code, but the environment or redirect URI doesn’t match what was originally authorized, so the code is considered invalid.
+	•	Fix:
+	1.	In the Intuit Developer Portal, ensure your Redirect URI exactly matches what your app is sending (including https:// vs. http://, port numbers, trailing slashes, etc.).
+	2.	Confirm you’re using the correct client ID and client secret for the environment (Development vs. Production).
+	3.	Make sure the code was generated in the same environment (Dev vs. Prod) you’re now exchanging it in.
+
+⸻
+
+4. Storing / Reusing Old Codes by Accident
+	•	Symptom: Your app might cache or store a previously used code, then inadvertently try to re-use it.
+	•	Fix:
+	1.	Log the code you receive from QuickBooks. Check if it’s always the same code. If so, you’re reusing it.
+	2.	After a successful token exchange, discard or clear that code from session.
+	3.	Always request a fresh code by initiating the OAuth flow from scratch (click “Connect to QuickBooks” again).
+
+⸻
+
+5. Check Your Server Logs Thoroughly
+	•	What to look for:
+	•	Multiple requests to QuickBooks’ token endpoint with the same code
+	•	Time stamps: is there a big gap between receiving the code and attempting the exchange?
+	•	Any error messages about mismatched environment variables?
+
+⸻
+
+Summary of Next Steps
+	1.	Restart the OAuth Flow from scratch in a new/incognito browser tab.
+	2.	Immediately exchange the code for tokens upon redirect—no delays, no second attempts.
+	3.	Ensure your callback logic only calls get_bearer_token() one time per code.
+	4.	Validate your environment (Dev/Prod) credentials and the exact redirect URI in Intuit Developer settings.
+
+Following these steps should prevent the “Invalid authorization code” / “Code expired or already used” errors, allowing you to obtain valid tokens for your QuickBooks integration. If you still see the error, add some debug logs around the token exchange to confirm exactly when, how often, and with which code your server is calling QuickBooks.
