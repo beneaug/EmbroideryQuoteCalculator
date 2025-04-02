@@ -959,8 +959,9 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         # Save the invoice
         invoice.save(qb=client)
         
-        # Return success with invoice ID
-        return True, f"Invoice #{invoice.DocNumber}" if hasattr(invoice, 'DocNumber') else "Invoice created successfully"
+        # Return success with invoice ID and directions for finding it
+        invoice_num = f"Invoice #{invoice.DocNumber}" if hasattr(invoice, 'DocNumber') else "Invoice"
+        return True, f"{invoice_num} created. Find it in QuickBooks under Accounts Receivable > Invoices."
         
     except Exception as e:
         import traceback
@@ -2129,37 +2130,12 @@ def main():
                 is_authenticated, auth_message = database.get_quickbooks_auth_status()
                 
                 if is_authenticated:
-                    # Create a button styled like the download buttons
-                    st.markdown("""
-                    <style>
-                    .quickbooks-button {
-                        background-color: #f3770c;
-                        background-image: linear-gradient(160deg, #f3770c 0%, #f59d0e 100%);
-                        border-radius: 10px !important;
-                        color: white !important;
-                        font-weight: bold !important;
-                        padding: 0.5rem 1rem !important;
-                        border: none !important;
-                        text-align: center !important;
-                        font-family: 'Helvetica Neue', sans-serif !important;
-                        font-size: 16px !important;
-                        margin-top: 10px !important;
-                        width: 100% !important;
-                        cursor: pointer !important;
-                        display: flex !important;
-                        align-items: center !important;
-                        justify-content: center !important;
-                    }
-                    .quickbooks-button svg {
-                        margin-right: 10px !important;
-                    }
-                    </style>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button("🏛️ Export to QuickBooks", 
-                              help="Create an invoice in QuickBooks based on this quote",
+                    # Create the QuickBooks export button to match the download buttons
+                    if st.button("Export to QuickBooks", 
+                              help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
                               key="export_to_qb_button",
-                              use_container_width=True):
+                              use_container_width=True,
+                              type="primary"):
                         with st.spinner("Exporting to QuickBooks..."):
                             success, message = export_to_quickbooks(
                                 st.session_state.design_info, 
@@ -2227,11 +2203,12 @@ def main():
                         is_authenticated, auth_message = database.get_quickbooks_auth_status()
                         
                         if is_authenticated:
-                            # Export to QuickBooks button for history
-                            if st.button("🏛️ Export to QuickBooks", 
-                                      help="Create an invoice in QuickBooks based on this quote",
+                            # Export to QuickBooks button for history to match download buttons
+                            if st.button("Export to QuickBooks", 
+                                      help="Create an invoice in QuickBooks based on this quote. After export, you can find it in Accounts Receivable > Invoices in your QuickBooks account.",
                                       key=f"export_to_qb_button_{i}",
-                                      use_container_width=True):
+                                      use_container_width=True,
+                                      type="primary"):
                                 with st.spinner("Exporting to QuickBooks..."):
                                     success, message = export_to_quickbooks(
                                         entry['design_info'], 
