@@ -1146,42 +1146,43 @@ def main():
             # Custom productivity rate slider
             custom_productivity_rate = None
             
-            # For Coloreel, use fixed rate and always show slider
-            if coloreel_enabled:
-                custom_productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
-                
-                # Show a disabled/readonly slider for visual consistency
-                st.slider(
-                    "Coloreel Productivity Rate", 
-                    min_value=0.2,  # 20% efficiency
-                    max_value=1.0,  # 100% efficiency
-                    value=custom_productivity_rate,
-                    disabled=True,
-                    format="%.2f",
-                    key='coloreel_productivity_slider'
-                )
-                
-                st.caption(f"Fixed Coloreel Rate: {custom_productivity_rate:.2f} ({int(custom_productivity_rate * 100)}% efficiency)")
-                
-            # For complex production without Coloreel, show adjustable slider
-            elif complex_production:
-                default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+            # Show productivity slider for either Coloreel or complex production
+            if complex_production or coloreel_enabled:
                 min_rate = 0.2  # 20% efficiency
                 max_rate = 1.0  # 100% efficiency
                 step = 0.05
                 
+                # Set different default values depending on which option is selected
+                if coloreel_enabled:
+                    default_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+                    slider_key = 'coloreel_productivity_slider'
+                    slider_label = "Coloreel Productivity Rate"
+                else:
+                    default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+                    slider_key = 'complex_productivity_slider'
+                    slider_label = "Productivity Rate"
+                
+                # Use previous value from session state if available
+                prev_rate = st.session_state.get(slider_key, default_rate)
+                
                 custom_productivity_rate = st.slider(
-                    "Productivity Rate", 
+                    slider_label, 
                     min_value=min_rate,
                     max_value=max_rate,
-                    value=default_rate,
+                    value=prev_rate,
                     step=step,
                     format="%.2f",
-                    key='complex_productivity_slider',
+                    key=slider_key,
                     help="Adjust the productivity rate (lower values = slower production)"
                 )
                 
-                st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
+                # Save current value in session state
+                st.session_state[slider_key] = custom_productivity_rate
+                
+                if coloreel_enabled:
+                    st.caption(f"Coloreel Efficiency: {int(custom_productivity_rate * 100)}% (default suggestion: {int(float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE) * 100)}%)")
+                else:
+                    st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
             
             # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
@@ -1197,12 +1198,15 @@ def main():
             # Calculate the final productivity rate based on all settings
             if not complex_production:
                 productivity_rate = float(DEFAULT_PRODUCTIVITY_RATE)
-            elif coloreel_enabled:
-                productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
             elif custom_productivity_rate is not None:
+                # Use the custom productivity rate (which may come from either the Coloreel or complex slider)
                 productivity_rate = custom_productivity_rate
             else:
-                productivity_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+                # Fallback to defaults if somehow no slider was shown
+                if coloreel_enabled:
+                    productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+                else:
+                    productivity_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
         
         with col2:
             thread_weight = st.selectbox("Thread Weight", 
