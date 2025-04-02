@@ -799,11 +799,13 @@ def get_download_link(buffer, filename, text):
 
 # QuickBooks Integration Functions
 def get_quickbooks_client():
-    """Initialize and return a QuickBooks client"""
+    """Initialize and return a QuickBooks client with robust token handling"""
     if not QUICKBOOKS_AVAILABLE:
         return None, "QuickBooks libraries not available"
     
-    # Get settings from database
+    # Get settings from database with detailed logging
+    print("\n===== QUICKBOOKS CLIENT INITIALIZATION =====")
+    print("Step 1: Retrieving QuickBooks settings from database...")
     qb_settings = database.get_quickbooks_settings()
     
     # Check if we have all required settings
@@ -811,43 +813,76 @@ def get_quickbooks_client():
     missing_settings = [s for s in required_settings if not qb_settings.get(s, {}).get('value')]
     
     if missing_settings:
+        print(f"ERROR: Missing QuickBooks settings: {', '.join(missing_settings)}")
         return None, f"Missing QuickBooks settings: {', '.join(missing_settings)}"
     
     try:
         # Get the necessary values from settings
         client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
         client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value')
+        access_token = qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', '')
         refresh_token = qb_settings.get('QB_REFRESH_TOKEN', {}).get('value')
         realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
+        
+        # Get environment and redirect URI with fallbacks
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
+        
+        # Set up the redirect_uri with a smart default
+        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
+        if not redirect_uri:
+            # Use the Replit domain as the default redirect URI
+            import os
+            replit_domain = os.environ.get("REPLIT_DOMAIN")
+            if replit_domain:
+                redirect_uri = f"https://{replit_domain}"
+            else:
+                redirect_uri = "http://localhost:5000"
+        
+        # Log the settings we're using (with sensitive data masked)
+        print(f"Using QuickBooks settings:")
+        print(f"  - Client ID: {client_id[:5]}..." if client_id else "  - Client ID: Not set")
+        print(f"  - Client Secret: {client_secret[:5]}..." if client_secret else "  - Client Secret: Not set")
+        print(f"  - Access Token: {'Present' if access_token else 'Not set'}")
+        print(f"  - Refresh Token: {'Present' if refresh_token else 'Not set'}")
+        print(f"  - Realm ID: {realm_id}")
+        print(f"  - Environment: {environment}")
+        print(f"  - Redirect URI: {redirect_uri}")
         
         # Import necessary modules for QuickBooks integration
+        print("Step 2: Importing QuickBooks integration modules...")
+        
         from intuitlib.client import AuthClient as IntuitAuthClient
         from intuitlib.enums import Scopes
         from quickbooks.auth import Oauth2SessionManager
         from quickbooks.client import QuickBooks
         
-        # Initialize the OAuth session manager directly
-        session_manager = Oauth2SessionManager(
-            client_id=client_id,
-            client_secret=client_secret,
-            access_token=qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', ''),
-            refresh_token=refresh_token,
-            realm_id=realm_id,
-            base_url="sandbox" if environment == "sandbox" else "production"
-        )
-        
-        # Initialize the QuickBooks client with the session manager
-        client = QuickBooks(
-            session_manager=session_manager,
-            company_id=realm_id,
-            minorversion=65
-        )
-        
-        # Check if we need to refresh the token
+        # Check if tokens need to be refreshed before proceeding
+        print("Step 3: Checking token expiration...")
         token_expires_at = qb_settings.get('QB_ACCESS_TOKEN_EXPIRES_AT', {}).get('value')
-        if token_expires_at and float(token_expires_at) < time.time():
+        current_time = time.time()
+        
+        # Always refresh if token is close to expiration (within 5 minutes)
+        needs_refresh = False
+        if token_expires_at:
+            expires_at = float(token_expires_at)
+            time_left = expires_at - current_time
+            print(f"  - Token expires in: {time_left:.2f} seconds ({time_left/60:.2f} minutes)")
+            
+            if time_left < 300:  # Less than 5 minutes remaining
+                print("  - Token close to expiration, will refresh")
+                needs_refresh = True
+        else:
+            print("  - No expiration time found, will attempt refresh")
+            needs_refresh = True
+            
+        # Always refresh if no access token
+        if not access_token:
+            print("  - No access token found, will attempt refresh")
+            needs_refresh = True
+            
+        # Refresh the tokens if needed
+        if needs_refresh:
+            print("Step 4: Refreshing tokens...")
             try:
                 # Initialize auth client for refreshing token
                 intuit_auth_client = IntuitAuthClient(
@@ -857,35 +892,94 @@ def get_quickbooks_client():
                     redirect_uri=redirect_uri
                 )
                 
-                # Define scopes for refresh
-                scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
-                
                 # Refresh the token
+                print("  - Calling refresh with current refresh token")
                 intuit_auth_client.refresh(refresh_token=refresh_token)
                 
+                # Get the new tokens
+                access_token = intuit_auth_client.access_token
+                refresh_token = intuit_auth_client.refresh_token
+                expires_in = intuit_auth_client.expires_in
+                
+                # Calculate expiration time
+                token_expiration = time.time() + expires_in
+                
                 # Update tokens in database
+                print("  - Storing new tokens in database")
                 database.update_quickbooks_token(
                     'QB_ACCESS_TOKEN', 
-                    intuit_auth_client.access_token,
-                    time.time() + intuit_auth_client.expires_in
+                    access_token,
+                    token_expiration
                 )
                 database.update_quickbooks_token(
                     'QB_REFRESH_TOKEN', 
-                    intuit_auth_client.refresh_token
+                    refresh_token
                 )
                 
-                # Update session manager with new tokens
-                session_manager.access_token = intuit_auth_client.access_token
-                session_manager.refresh_token = intuit_auth_client.refresh_token
+                print(f"  - Token refresh successful, new expiration: {time.ctime(token_expiration)}")
                 
-            except Exception as error:
-                return None, f"Error refreshing token: {str(error)}"
+            except Exception as refresh_error:
+                print(f"ERROR during token refresh: {str(refresh_error)}")
+                import traceback
+                print(traceback.format_exc())
+                return None, f"Error refreshing QuickBooks token: {str(refresh_error)}"
         
+        # Initialize the session manager with our tokens
+        print("Step 5: Creating session manager...")
+        base_url = "sandbox" if environment.lower() == "sandbox" else "production"
+        print(f"  - Using base_url: {base_url}")
+        
+        session_manager = Oauth2SessionManager(
+            client_id=client_id,
+            client_secret=client_secret,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            realm_id=realm_id,
+            base_url=base_url,
+            callback=lambda x: print(f"QuickBooks token refresh callback triggered")
+        )
+        
+        # Create the QuickBooks client with our session manager
+        print("Step 6: Creating QuickBooks client...")
+        client = QuickBooks(
+            session_manager=session_manager,
+            company_id=realm_id,
+            minorversion=69  # Use latest supported version
+        )
+        
+        # Set the environment flag
+        client.sandbox = (environment.lower() == 'sandbox')
+        print(f"  - Client created for company_id: {realm_id}")
+        print(f"  - Sandbox mode: {client.sandbox}")
+        
+        # Setup automatic token refresh handler
+        def token_refresh_handler(session_manager):
+            print("QuickBooks automatic token refresh triggered")
+            try:
+                # Update tokens in database
+                if hasattr(session_manager, 'access_token') and session_manager.access_token:
+                    print("Storing refreshed access token in database")
+                    database.update_quickbooks_token('QB_ACCESS_TOKEN', session_manager.access_token)
+                
+                if hasattr(session_manager, 'refresh_token') and session_manager.refresh_token:
+                    print("Storing refreshed refresh token in database")
+                    database.update_quickbooks_token('QB_REFRESH_TOKEN', session_manager.refresh_token)
+            except Exception as e:
+                print(f"Error in token refresh handler: {str(e)}")
+        
+        # Set the callback on the session manager
+        if hasattr(session_manager, 'callback'):
+            session_manager.callback = token_refresh_handler
+            
+        print("===== QUICKBOOKS CLIENT INITIALIZATION COMPLETE =====\n")
         return client, None
         
     except Exception as e:
+        # Log detailed error information
         import traceback
         error_details = traceback.format_exc()
+        print(f"ERROR in get_quickbooks_client: {str(e)}")
+        print(error_details)
         return None, f"Error initializing QuickBooks client: {str(e)}\n{error_details}"
 
 def export_to_quickbooks(design_info, job_inputs, cost_results):
@@ -893,15 +987,19 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
     if not QUICKBOOKS_AVAILABLE:
         return False, "QuickBooks integration is not available. Please install the required libraries."
     
-    # Get QuickBooks client
+    # Get QuickBooks client with better logging
+    print(f"\n\n===== QUICKBOOKS EXPORT STARTED =====")
+    print(f"Step 1: Getting QuickBooks client...")
     client, error = get_quickbooks_client()
     if not client:
+        print(f"ERROR: Could not get QuickBooks client: {error}")
         return False, error
+    print(f"QuickBooks client obtained successfully")
     
     try:
         # Import necessary modules
         from quickbooks.objects.customer import Customer
-        from quickbooks.objects.estimate import Estimate  # Use Estimate instead of Invoice
+        from quickbooks.objects.estimate import Estimate
         from quickbooks.objects.item import Item
         from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
         from quickbooks.objects.base import Ref
@@ -911,7 +1009,8 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
         
-        print(f"========= QUICKBOOKS EXPORT DEBUG =========")
+        # Print detailed export information
+        print(f"Step 2: Preparing export data")
         print(f"QuickBooks Environment: {environment}")
         print(f"QuickBooks Realm ID: {realm_id}")
         print(f"Job Name: {job_inputs.get('job_name', 'Embroidery Job')}")
@@ -919,160 +1018,191 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         print(f"Quantity: {job_inputs.get('quantity', 1)}")
         print(f"Total Job Cost: ${cost_results['total_job_cost']:.2f}")
         print(f"Price Per Piece: ${cost_results['price_per_piece']:.2f}")
-        print(f"==========================================")
         
-        # Find or create customer
-        customer_name = job_inputs.get("customer_name", "New Customer")
-        print(f"Looking up customer: '{customer_name}'")
+        # Save current token data before proceeding (this helps prevent auth issues)
+        print(f"Step 3: Verifying QuickBooks authorization...")
+        auth_status, auth_message = database.get_quickbooks_auth_status()
+        if not auth_status:
+            print(f"ERROR: QuickBooks authorization invalid: {auth_message}")
+            return False, f"QuickBooks authorization invalid: {auth_message}. Please re-authorize in Admin settings."
+        else:
+            print(f"QuickBooks authorization valid")
+        
+        # Set default customer name if missing
+        customer_name = job_inputs.get("customer_name", "").strip()
+        if not customer_name:
+            customer_name = "New Embroidery Customer"
+            print(f"Using default customer name: '{customer_name}'")
+        else:
+            print(f"Using customer name from job: '{customer_name}'")
         
         # Clean customer name to avoid query issues
         safe_customer_name = customer_name.replace("'", "''")
         
-        # Query customer with better error handling
+        # Step 4: Find or create customer
+        print(f"Step 4: Finding or creating customer...")
         try:
+            # First try to query for the customer
             query = f"SELECT * FROM Customer WHERE DisplayName = '{safe_customer_name}'"
-            print(f"Running query: {query}")
+            print(f"Running customer query: {query}")
             customers = Customer.query(query, qb=client)
             print(f"Found {len(customers)} customers matching '{customer_name}'")
-        except Exception as ce:
-            print(f"Error querying customers: {str(ce)}")
-            customers = []
-        
-        if not customers:
-            # Create new customer
-            print(f"Creating new customer: '{customer_name}'")
-            try:
-                customer = Customer()
-                customer.DisplayName = customer_name
-                if customer_name:
-                    customer.CompanyName = customer_name
-                    customer.GivenName = customer_name.split(' ')[0] if ' ' in customer_name else customer_name
-                    customer.FamilyName = customer_name.split(' ')[-1] if ' ' in customer_name else ''
-                customer.save(qb=client)
-                print(f"New customer created successfully with ID: {customer.Id if hasattr(customer, 'Id') else 'Unknown'}")
-            except Exception as ce:
-                print(f"Error creating customer: {str(ce)}")
-                # Try a more basic customer creation
+            
+            # Create customer if none found
+            if not customers:
+                print(f"Creating new customer: '{customer_name}'")
                 try:
-                    print("Trying simplified customer creation")
+                    # Use fallback customer name if needed
+                    if not customer_name or customer_name.isspace():
+                        customer_name = f"Embroidery Customer {int(time.time())}"
+                    
+                    # Create the customer with proper formatting
                     customer = Customer()
-                    customer.DisplayName = f"New Customer {int(time.time())}"
-                    customer.CompanyName = customer.DisplayName
+                    customer.DisplayName = customer_name
+                    customer.CompanyName = customer_name
+                    
+                    # Parse first/last name if a full name is provided
+                    if ' ' in customer_name:
+                        customer.GivenName = customer_name.split(' ')[0]
+                        customer.FamilyName = ' '.join(customer_name.split(' ')[1:])
+                    
+                    # Add print email if needed
+                    customer.PrimaryEmailAddr = {"Address": ""}
+                    
+                    # Save the customer
+                    print(f"Saving new customer...")
                     customer.save(qb=client)
-                    print(f"Created generic customer with ID: {customer.Id if hasattr(customer, 'Id') else 'Unknown'}")
-                except Exception as simple_ce:
-                    print(f"Simple customer creation also failed: {str(simple_ce)}")
-                    return False, f"Could not create or find a customer. Error: {str(ce)}"
-        else:
-            customer = customers[0]
-            print(f"Using existing customer with ID: {customer.Id if hasattr(customer, 'Id') else 'Unknown'}")
-        
-        # Create new estimate
-        print("Creating new estimate object")
-        estimate = Estimate()
-        
-        # Set the customer reference
-        print(f"Setting customer reference to ID: {customer.Id}")
-        estimate.CustomerRef = customer.to_ref()
-        
-        # Add job details to memo
-        job_name = job_inputs.get("job_name", "Embroidery Job")
-        stitch_count = design_info.get('stitch_count', 0)
-        color_count = job_inputs.get('color_count', 1)
-        memo_text = f"Job: {job_name} - {stitch_count} stitches, {color_count} colors"
-        print(f"Setting memo: {memo_text}")
-        estimate.CustomerMemo = {"value": memo_text}
-        
-        # Get service item reference - find or create
-        print("Searching for 'Embroidery Services' item")
-        try:
-            item_query = "SELECT * FROM Item WHERE Type = 'Service' AND Name = 'Embroidery Services'"
-            print(f"Running item query: {item_query}")
-            items = Item.query(item_query, qb=client)
-            print(f"Found {len(items)} items matching 'Embroidery Services'")
-        except Exception as ie:
-            print(f"Error querying items: {str(ie)}")
-            items = []
-        
-        if not items:
-            # Try to create a service item
+                    print(f"New customer created with ID: {customer.Id}")
+                except Exception as ce:
+                    print(f"Error creating customer: {str(ce)}")
+                    # Try a simplified approach as fallback
+                    try:
+                        print("Trying simplified customer creation")
+                        customer = Customer()
+                        customer.DisplayName = f"Embroidery Customer {int(time.time())}"
+                        customer.CompanyName = customer.DisplayName
+                        customer.save(qb=client)
+                        print(f"Created generic customer with ID: {customer.Id}")
+                    except Exception as simple_ce:
+                        print(f"Simple customer creation also failed: {str(simple_ce)}")
+                        return False, f"Could not create a customer in QuickBooks. Error: {str(simple_ce)}"
+            else:
+                # Use existing customer
+                customer = customers[0]
+                print(f"Using existing customer: {customer.DisplayName} (ID: {customer.Id})")
+            
+            # Step 5: Create new estimate
+            print(f"Step 5: Creating new estimate...")
+            estimate = Estimate()
+            
+            # Set the customer reference
+            print(f"Setting customer reference to ID: {customer.Id}")
+            estimate.CustomerRef = customer.to_ref()
+            
+            # Add job details to memo with proper formatting
+            job_name = job_inputs.get("job_name", "Embroidery Job")
+            stitch_count = design_info.get('stitch_count', 0)
+            color_count = job_inputs.get('color_count', 1)
+            memo_text = f"Embroidery Job: {job_name} - {stitch_count:,} stitches, {color_count} colors"
+            print(f"Setting memo: {memo_text}")
+            estimate.CustomerMemo = {"value": memo_text}
+            
+            # Step 6: Get or create service item
+            print(f"Step 6: Finding or creating service item...")
             try:
-                print("Creating new 'Embroidery Services' item")
-                # First get the income account to use
-                from quickbooks.objects.account import Account
-                income_accounts = Account.query("SELECT * FROM Account WHERE AccountType = 'Income' AND AccountSubType = 'ServiceFeeIncome'", qb=client)
+                item_query = "SELECT * FROM Item WHERE Type = 'Service' AND Name = 'Embroidery Services'"
+                print(f"Running item query: {item_query}")
+                items = Item.query(item_query, qb=client)
+                print(f"Found {len(items)} matching service items")
                 
-                if not income_accounts:
+                if not items:
+                    # Create the service item
+                    print("Creating new 'Embroidery Services' item")
+                    
+                    # First get an income account to use
+                    from quickbooks.objects.account import Account
+                    print("Querying for income accounts...")
                     income_accounts = Account.query("SELECT * FROM Account WHERE AccountType = 'Income'", qb=client)
+                    
+                    if not income_accounts:
+                        print("No income accounts found. Cannot create item.")
+                        return False, "No income accounts found in QuickBooks. Please create an income account first."
+                    
+                    # Use the first available income account
+                    income_account = income_accounts[0]
+                    print(f"Using income account: {income_account.Name} (ID: {income_account.Id})")
+                    
+                    # Create the item with proper settings
+                    item = Item()
+                    item.Name = "Embroidery Services"
+                    item.Description = "Embroidery services including digitizing, setup, and production"
+                    item.Type = "Service"
+                    item.IncomeAccountRef = {"value": income_account.Id, "name": income_account.Name}
+                    item.Taxable = False
+                    
+                    # Save the item
+                    print("Saving new service item...")
+                    item.save(qb=client)
+                    print(f"Created service item with ID: {item.Id}")
+                else:
+                    # Use existing item
+                    item = items[0]
+                    print(f"Using existing item: {item.Name} (ID: {item.Id})")
                 
-                if not income_accounts:
-                    print("No income accounts found. Cannot create item.")
-                    return False, "No income accounts found in QuickBooks. Please create an income account first."
+                # Step 7: Create line item
+                print(f"Step 7: Creating line item...")
+                line = SalesItemLine()
                 
-                income_account = income_accounts[0]
-                print(f"Using income account: {income_account.Name} (ID: {income_account.Id})")
+                # Format the description properly
+                quantity = job_inputs.get('quantity', 1)
+                stitch_count = design_info.get('stitch_count', 0)
+                line.Description = f"Embroidery services - {quantity} pieces, {stitch_count:,} stitches"
                 
-                # Create the item
-                item = Item()
-                item.Name = "Embroidery Services"
-                item.Description = "Embroidery services including digitizing, setup, and production"
-                item.Type = "Service"
-                item.IncomeAccountRef = {"value": income_account.Id, "name": income_account.Name}
+                # Set amounts as strings to avoid precision issues
+                total_cost = float(cost_results['total_job_cost'])
+                per_piece = float(cost_results['price_per_piece'])
                 
-                # Save the item
-                print("Saving new service item to QuickBooks")
-                item.save(qb=client)
-                print(f"Created 'Embroidery Services' item with ID: {item.Id if hasattr(item, 'Id') else 'Unknown'}")
+                line.Amount = round(total_cost, 2)
+                line.DetailType = "SalesItemLineDetail"
+                
+                # Set line item details
+                detail = SalesItemLineDetail()
+                detail.ItemRef = item.to_ref()
+                detail.Qty = quantity
+                detail.UnitPrice = round(per_piece, 2)
+                line.SalesItemLineDetail = detail
+                
+                # Add line to estimate
+                estimate.Line = []
+                estimate.Line.append(line)
+                print("Line item created successfully")
+                
+                # Step 8: Save the estimate
+                print(f"Step 8: Saving estimate to QuickBooks...")
+                estimate.save(qb=client)
+                
+                # Get estimate details
+                estimate_id = estimate.Id if hasattr(estimate, 'Id') else "Unknown"
+                estimate_number = estimate.DocNumber if hasattr(estimate, 'DocNumber') else "Unknown"
+                print(f"Estimate saved with ID: {estimate_id}, Number: {estimate_number}")
+                
+                # Return success message with specific instructions
+                return True, (
+                    f"Estimate #{estimate_number} (ID: {estimate_id}) created successfully! "
+                    f"You can find it in QuickBooks {environment} under Sales > Estimates."
+                )
+                
             except Exception as ie:
-                print(f"Error creating item: {str(ie)}")
-                return False, "Embroidery Services item not found in QuickBooks and couldn't be created. Error: " + str(ie)
-        else:
-            item = items[0]
-            print(f"Using existing Embroidery Services item with ID: {item.Id if hasattr(item, 'Id') else 'Unknown'}")
-        
-        # Create the line item
-        print("Creating line item for estimate")
-        try:
-            line = SalesItemLine()
-            line.Description = f"Embroidery services - {job_inputs.get('quantity', 1)} pieces"
-            line.Amount = float(cost_results['total_job_cost'])
-            line.DetailType = "SalesItemLineDetail"
-            
-            # Set line item details
-            detail = SalesItemLineDetail()
-            detail.ItemRef = item.to_ref()
-            detail.Qty = float(job_inputs.get('quantity', 1))
-            detail.UnitPrice = float(cost_results['price_per_piece'])
-            line.SalesItemLineDetail = detail
-            
-            # Add line to estimate
-            estimate.Line = []
-            estimate.Line.append(line)
-            
-            print("Line item created successfully")
-        except Exception as le:
-            print(f"Error creating line item: {str(le)}")
-            return False, f"Error creating line item: {str(le)}"
-        
-        # Save the estimate
-        print("Saving estimate to QuickBooks...")
-        try:
-            estimate.save(qb=client)
-            # Get estimate details for better debugging
-            estimate_id = estimate.Id if hasattr(estimate, 'Id') else "Unknown"
-            estimate_number = estimate.DocNumber if hasattr(estimate, 'DocNumber') else "Unknown"
-            print(f"Estimate saved successfully with ID: {estimate_id} and number: {estimate_number}")
-            
-            # Return success with estimate ID and directions for finding it
-            estimate_num = f"Estimate #{estimate.DocNumber}" if hasattr(estimate, 'DocNumber') else "Estimate"
-            print(f"QuickBooks export completed successfully")
-            return True, f"{estimate_num} (ID: {estimate_id}) created. Find it in QuickBooks under Sales > Estimates in the {environment} environment."
-        except Exception as se:
-            print(f"Error saving estimate: {str(se)}")
+                print(f"Error handling items: {str(ie)}")
+                import traceback
+                print(traceback.format_exc())
+                return False, f"Error with service item: {str(ie)}"
+                
+        except Exception as ce:
+            print(f"Error handling customer: {str(ce)}")
             import traceback
-            save_error = traceback.format_exc()
-            print(f"Save error details: {save_error}")
-            return False, f"Error saving estimate to QuickBooks: {str(se)}"
+            print(traceback.format_exc())
+            return False, f"Error with customer: {str(ce)}"
         
     except Exception as e:
         import traceback
@@ -2244,88 +2374,80 @@ def main():
                 
                 if is_authenticated:
                     # Create the QuickBooks export button to match the download buttons
-                    # First check if we're in the middle of an export operation
-                    if 'qb_export_in_progress' not in st.session_state:
-                        st.session_state.qb_export_in_progress = False
+                    # Create a dedicated container for the QuickBooks export
+                    export_container = st.container()
                     
-                    if 'qb_export_result' not in st.session_state:
-                        st.session_state.qb_export_result = None
+                    # Track export status without using rerun
+                    if 'qb_last_export_status' not in st.session_state:
+                        st.session_state.qb_last_export_status = None
                     
-                    # Create a dedicated container for the QuickBooks export button
-                    export_button_col = st.container()
-                    
-                    # Display previous export result if it exists
-                    if st.session_state.qb_export_result:
-                        success, message = st.session_state.qb_export_result
+                    # Display the export status if available
+                    if st.session_state.qb_last_export_status:
+                        success, message = st.session_state.qb_last_export_status
                         if success:
-                            st.success(f"Successfully exported to QuickBooks: {message}")
+                            export_container.success(f"Successfully exported to QuickBooks: {message}")
                         else:
-                            st.error(f"Failed to export to QuickBooks: {message}")
+                            export_container.error(f"Failed to export to QuickBooks: {message}")
                     
-                    with export_button_col:
-                        # Create the export button
-                        export_clicked = st.button(
-                            "Export to QuickBooks", 
-                            help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
-                            key="export_to_qb_button",
-                            use_container_width=True,
-                            type="primary"
-                        )
+                    # Create the Export button
+                    export_clicked = export_container.button(
+                        "Export to QuickBooks", 
+                        help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
+                        key="export_to_qb_button",
+                        use_container_width=True,
+                        type="primary",
+                        on_click=None  # No callback - we'll handle the click directly
+                    )
+                    
+                    # Process the export ONLY if button is clicked
+                    if export_clicked:
+                        # Create a placeholder for dynamic status updates
+                        status_placeholder = export_container.empty()
+                        status_placeholder.info("Starting QuickBooks export...")
                         
-                        # Handle the export process
-                        if export_clicked and not st.session_state.qb_export_in_progress:
-                            # Mark that we're starting an export
-                            st.session_state.qb_export_in_progress = True
-                            
-                            # Store current state before exporting
+                        try:
+                            # Safely make copies of all required data
+                            import copy
                             if 'design_info' in st.session_state and st.session_state.design_info:
-                                # Save all the current values to session state for preservation
-                                import copy
-                                st.session_state.export_design_info = copy.deepcopy(st.session_state.design_info)
-                                st.session_state.export_job_inputs = copy.deepcopy(job_inputs)
-                                st.session_state.export_cost_results = copy.deepcopy(cost_results)
+                                # Use deep copying to ensure we preserve all data
+                                export_design_info = copy.deepcopy(st.session_state.design_info)
+                                export_job_inputs = copy.deepcopy(job_inputs)
+                                export_cost_results = copy.deepcopy(cost_results)
                                 
-                                # Rerun to move to the export execution step
-                                st.rerun()
+                                # Update placeholder with progress
+                                status_placeholder.info("Exporting to QuickBooks... (this may take a moment)")
+                                
+                                # Export to QuickBooks (this will be logged extensively)
+                                success, message = export_to_quickbooks(
+                                    export_design_info, 
+                                    export_job_inputs, 
+                                    export_cost_results
+                                )
+                                
+                                # Store the result without refreshing the page
+                                st.session_state.qb_last_export_status = (success, message)
+                                
+                                # Update the UI with the result (no page refresh)
+                                if success:
+                                    status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                else:
+                                    status_placeholder.error(f"Failed to export to QuickBooks: {message}")
                             else:
-                                st.error("Design information not available. Please recalculate the quote.")
-                                st.session_state.qb_export_in_progress = False
-                        
-                        # This section will run after the rerun if export is in progress
-                        if st.session_state.qb_export_in_progress:
-                            with st.spinner("Exporting to QuickBooks..."):
-                                try:
-                                    # Retrieve the saved data
-                                    export_design_info = st.session_state.export_design_info
-                                    export_job_inputs = st.session_state.export_job_inputs
-                                    export_cost_results = st.session_state.export_cost_results
-                                    
-                                    # Perform the export
-                                    success, message = export_to_quickbooks(
-                                        export_design_info, 
-                                        export_job_inputs, 
-                                        export_cost_results
-                                    )
-                                    
-                                    # Store the result in the session state
-                                    st.session_state.qb_export_result = (success, message)
-                                    
-                                    # Reset the in-progress flag
-                                    st.session_state.qb_export_in_progress = False
-                                    
-                                    # Display the result
-                                    if success:
-                                        st.success(f"Successfully exported to QuickBooks: {message}")
-                                    else:
-                                        st.error(f"Failed to export to QuickBooks: {message}")
-                                        
-                                except Exception as e:
-                                    import traceback
-                                    error_trace = traceback.format_exc()
-                                    st.error(f"Error during QuickBooks export: {str(e)}")
-                                    st.code(error_trace)
-                                    st.session_state.qb_export_in_progress = False
-                                    st.session_state.qb_export_result = (False, f"Error: {str(e)}")
+                                status_placeholder.error("Design information not available. Please recalculate the quote.")
+                                st.session_state.qb_last_export_status = (False, "Design information not available")
+                        except Exception as e:
+                            # Capture detailed error information
+                            import traceback
+                            error_trace = traceback.format_exc()
+                            print(f"EXPORT ERROR: {str(e)}\n{error_trace}")
+                            
+                            # Update UI with error
+                            status_placeholder.error(f"Error during QuickBooks export: {str(e)}")
+                            with status_placeholder.expander("Error Details"):
+                                st.code(error_trace)
+                                
+                            # Store error status
+                            st.session_state.qb_last_export_status = (False, f"Error: {str(e)}")
                 else:
                     st.warning(f"QuickBooks integration not available: {auth_message}. Please configure in Admin settings.")
         
@@ -2383,89 +2505,81 @@ def main():
                         
                         if is_authenticated:
                             # Export to QuickBooks button for history to match download buttons
-                            # First check if we're in the middle of an export operation for this history item
-                            history_export_progress_key = f"qb_export_in_progress_{i}"
-                            history_export_result_key = f"qb_export_result_{i}"
+                            # Create a container for the history export
+                            export_history_container = st.container()
                             
-                            if history_export_progress_key not in st.session_state:
-                                st.session_state[history_export_progress_key] = False
-                                
-                            if history_export_result_key not in st.session_state:
-                                st.session_state[history_export_result_key] = None
+                            # Track export status without using rerun
+                            history_status_key = f"qb_history_export_status_{i}"
+                            if history_status_key not in st.session_state:
+                                st.session_state[history_status_key] = None
                             
-                            # Create container for the export button
-                            export_history_button_col = st.container()
-                            
-                            # Display previous export result if it exists
-                            if st.session_state[history_export_result_key]:
-                                success, message = st.session_state[history_export_result_key]
+                            # Display previous export result
+                            if st.session_state[history_status_key]:
+                                success, message = st.session_state[history_status_key]
                                 if success:
-                                    st.success(f"Successfully exported to QuickBooks: {message}")
+                                    export_history_container.success(f"Successfully exported to QuickBooks: {message}")
                                 else:
-                                    st.error(f"Failed to export to QuickBooks: {message}")
+                                    export_history_container.error(f"Failed to export to QuickBooks: {message}")
                             
-                            with export_history_button_col:
-                                # Create the export button
-                                export_history_clicked = st.button(
-                                    "Export to QuickBooks", 
-                                    help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
-                                    key=f"export_to_qb_button_{i}",
-                                    use_container_width=True,
-                                    type="primary"
-                                )
+                            # Create the export button
+                            export_history_clicked = export_history_container.button(
+                                "Export to QuickBooks", 
+                                help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
+                                key=f"export_to_qb_button_{i}",
+                                use_container_width=True,
+                                type="primary"
+                            )
+                            
+                            # Handle export when clicked - NO RERUN needed
+                            if export_history_clicked:
+                                # Create a placeholder for status updates
+                                status_history_placeholder = export_history_container.empty()
+                                status_history_placeholder.info("Starting QuickBooks export...")
                                 
-                                # Handle the export process
-                                if export_history_clicked and not st.session_state[history_export_progress_key]:
-                                    # Mark that we're starting an export
-                                    st.session_state[history_export_progress_key] = True
-                                    
-                                    # Store the entry data before exporting
+                                try:
+                                    # Safe copying of history item data
                                     import copy
-                                    st.session_state[f"export_design_info_{i}"] = copy.deepcopy(entry['design_info'])
-                                    st.session_state[f"export_job_inputs_{i}"] = copy.deepcopy(entry['job_inputs'])
-                                    st.session_state[f"export_cost_results_{i}"] = copy.deepcopy(entry['cost_results'])
+                                    export_design_info = copy.deepcopy(entry['design_info'])
+                                    export_job_inputs = copy.deepcopy(entry['job_inputs'])
+                                    export_cost_results = copy.deepcopy(entry['cost_results'])
                                     
-                                    # Rerun to move to the export execution step
-                                    st.rerun()
-                                
-                                # This section will run after the rerun if export is in progress
-                                if st.session_state[history_export_progress_key]:
-                                    with st.spinner("Exporting to QuickBooks..."):
-                                        try:
-                                            # Retrieve the saved data
-                                            export_design_info = st.session_state[f"export_design_info_{i}"]
-                                            export_job_inputs = st.session_state[f"export_job_inputs_{i}"]
-                                            export_cost_results = st.session_state[f"export_cost_results_{i}"]
-                                            
-                                            # Perform the export with enhanced debugging
-                                            print(f"Starting QuickBooks export for history item {i}")
-                                            success, message = export_to_quickbooks(
-                                                export_design_info, 
-                                                export_job_inputs, 
-                                                export_cost_results
-                                            )
-                                            print(f"QuickBooks export complete - Success: {success}")
-                                            
-                                            # Store the result in the session state
-                                            st.session_state[history_export_result_key] = (success, message)
-                                            
-                                            # Reset the in-progress flag
-                                            st.session_state[history_export_progress_key] = False
-                                            
-                                            # Display the result
-                                            if success:
-                                                st.success(f"Successfully exported to QuickBooks: {message}")
-                                            else:
-                                                st.error(f"Failed to export to QuickBooks: {message}")
-                                        except Exception as e:
-                                            import traceback
-                                            error_trace = traceback.format_exc()
-                                            print(f"Error in QuickBooks export: {str(e)}")
-                                            print(error_trace)
-                                            st.error(f"Error during QuickBooks export: {str(e)}")
-                                            st.code(error_trace)
-                                            st.session_state[history_export_progress_key] = False
-                                            st.session_state[history_export_result_key] = (False, f"Error: {str(e)}")
+                                    # Update the placeholder
+                                    status_history_placeholder.info("Exporting to QuickBooks... (this may take a moment)")
+                                    
+                                    # Perform the export with enhanced debugging
+                                    print(f"Starting QuickBooks export for history item {i}")
+                                    print(f"Job: {export_job_inputs.get('job_name', 'Unknown')}")
+                                    print(f"Customer: {export_job_inputs.get('customer_name', 'Unknown')}")
+                                    
+                                    # Execute the export
+                                    success, message = export_to_quickbooks(
+                                        export_design_info, 
+                                        export_job_inputs, 
+                                        export_cost_results
+                                    )
+                                    
+                                    # Store the result without refreshing
+                                    st.session_state[history_status_key] = (success, message)
+                                    
+                                    # Update the UI with the result (no page refresh)
+                                    if success:
+                                        status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                    else:
+                                        status_history_placeholder.error(f"Failed to export to QuickBooks: {message}")
+                                    
+                                except Exception as e:
+                                    # Detailed error reporting
+                                    import traceback
+                                    error_trace = traceback.format_exc()
+                                    print(f"HISTORY EXPORT ERROR: {str(e)}\n{error_trace}")
+                                    
+                                    # Show error in UI
+                                    status_history_placeholder.error(f"Error during QuickBooks export: {str(e)}")
+                                    with status_history_placeholder.expander("Error Details"):
+                                        st.code(error_trace)
+                                    
+                                    # Store error status
+                                    st.session_state[history_status_key] = (False, f"Error: {str(e)}")
     
     # Admin Settings Tab
     with tab3:
