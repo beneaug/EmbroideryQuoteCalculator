@@ -75,14 +75,21 @@ def quickbooks_auth():
     clean_old_states()
     
     # Build the OAuth URL with standard parameters
-    # Use the redirect URI that's registered in the Intuit Developer Dashboard
-    callback_url = "https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/api/quickbooks/callback"
+    # Use the provided redirect_uri that's registered in the Intuit Developer Dashboard
+    callback_uri = redirect_uri + "/callback"
+    
+    # Add a direct backend callback option that doesn't depend on the app frontend
+    if not callback_uri.startswith("http"):
+        # Fallback to a direct backend callback if the redirect_uri isn't a URL
+        callback_uri = "http://localhost:5001/callback"
+    
+    print(f"Using callback URI: {callback_uri}")
     
     params = {
         'client_id': client_id,
         'response_type': 'code',
         'scope': 'com.intuit.quickbooks.accounting',
-        'redirect_uri': callback_url,
+        'redirect_uri': callback_uri,
         'state': state
     }
     
@@ -96,7 +103,8 @@ def quickbooks_auth():
 
 @app.route('/api/quickbooks/callback')
 # Also support the callback directly at the root path in case the redirect doesn't include /api
-@app.route('/quickbooks/callback')  
+@app.route('/quickbooks/callback')
+@app.route('/callback')
 def quickbooks_callback():
     """Handle the OAuth callback from QuickBooks"""
     # Get the authorization code and state
@@ -119,10 +127,20 @@ def quickbooks_callback():
     environment = params['environment']
     
     # Exchange the code for tokens
+    # Create the same callback_uri as used in the authorization request
+    callback_uri = redirect_uri + "/callback"
+    
+    # Add a direct backend callback option that doesn't depend on the app frontend
+    if not callback_uri.startswith("http"):
+        # Fallback to a direct backend callback if the redirect_uri isn't a URL
+        callback_uri = "http://localhost:5001/callback"
+    
+    print(f"Using callback URI for token exchange: {callback_uri}")
+    
     token_data = {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': "https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/api/quickbooks/callback"
+        'redirect_uri': callback_uri
     }
     
     headers = {

@@ -1315,15 +1315,19 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return False, f"Error exporting to QuickBooks: {str(e)}", None, None
 
 def get_quickbooks_auth_url():
-    """Generate QuickBooks authorization URL with improved debugging and reliability"""
+    """Generate QuickBooks authorization URL with improved debugging and reliability
+    
+    This version uses the dedicated OAuth server running separately from the Streamlit app.
+    This approach follows standard OAuth practices and is more reliable.
+    """
     # Display QuickBooks library status to help with debugging
-    st.info(f"QuickBooks libraries available: {QUICKBOOKS_AVAILABLE}")
+    print(f"QuickBooks libraries available: {QUICKBOOKS_AVAILABLE}")
     if not QUICKBOOKS_AVAILABLE:
         st.error(f"QuickBooks libraries are not available: {QUICKBOOKS_IMPORT_ERROR}")
         return None
     
     # Log settings retrieval
-    st.info("Retrieving QuickBooks settings from database...")
+    print("Retrieving QuickBooks settings from database...")
     qb_settings = database.get_quickbooks_settings()
     
     # Get the current Replit URL for the correct redirect URI
@@ -1347,7 +1351,7 @@ def get_quickbooks_auth_url():
     # Always update the redirect URI to match the current Replit domain
     # This prevents issues when the Replit URL changes between sessions
     if replit_domain:
-        st.info(f"Setting redirect URI to current Replit domain: {default_redirect_uri}")
+        print(f"Setting redirect URI to current Replit domain: {default_redirect_uri}")
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect_uri)
         redirect_uri = default_redirect_uri
     else:
@@ -1356,7 +1360,7 @@ def get_quickbooks_auth_url():
     environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
     
     # Log the retrieved settings (masked for security)
-    st.info(f"""QuickBooks settings retrieved:
+    print(f"""QuickBooks settings retrieved:
     - Client ID: {client_id_masked or "Not set"}
     - Client Secret: {client_secret_masked or "Not set"}
     - Redirect URI: {redirect_uri or "Not set"}
@@ -1368,65 +1372,55 @@ def get_quickbooks_auth_url():
         return None
     
     try:
-        # Import the necessary libraries
-        st.info("Importing QuickBooks OAuth libraries...")
-        from intuitlib.client import AuthClient as IntuitAuthClient
-        from intuitlib.enums import Scopes
+        # Instead of using the Intuit SDK directly, we'll use our OAuth server
+        # This is more reliable and follows standard OAuth practices
+        print("Using OAuth server to generate authorization URL...")
         
-        # Log the available scopes for debugging
-        st.info(f"Available scopes: {[s.name for s in Scopes]}")
+        # Determine the OAuth server URL (localhost in dev, otherwise port 5001 on same host)
+        oauth_server_url = "http://localhost:5001" if not replit_domain else f"http://{replit_domain.split('.')[0]}-5001.{'.'.join(replit_domain.split('.')[1:])}"
         
-        # We no longer automatically reset tokens here
-        # Only reset tokens when they're explicitly invalid or when requested by user
-        st.info("Checking existing authorization status before proceeding...")
+        # In Replit, we need to use the internal network
+        if replit_domain:
+            oauth_server_url = "http://localhost:5001"
         
-        # Initialize the Intuit auth client
-        st.info("Initializing Intuit Auth Client...")
-        intuit_auth_client = IntuitAuthClient(
-            client_id=client_id,
-            client_secret=client_secret,
-            environment=environment,
-            redirect_uri=redirect_uri
-        )
+        print(f"OAuth server URL: {oauth_server_url}")
         
-        # Define the scopes using the proper Scopes enum
-        st.info("Setting authorization scopes...")
-        scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
-        
-        # Note: The Intuit SDK doesn't support state parameter in the get_authorization_url method
-        # However, we'll still track this in session state for later validation if needed
+        # Make a request to the OAuth server to get the authorization URL
+        import requests
         import uuid
+        
+        # Generate a state parameter for security
         state = str(uuid.uuid4())
         st.session_state['qb_auth_state'] = state
         
-        # Get the authorization URL (without state parameter)
-        st.info(f"Generating authorization URL...")
-        auth_url = intuit_auth_client.get_authorization_url(scopes)
+        auth_endpoint = f"{oauth_server_url}/api/quickbooks/auth"
+        params = {
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'redirect_uri': redirect_uri,
+            'environment': environment
+        }
         
-        # Log success and partial URL (for security)
-        if auth_url:
-            url_parts = auth_url.split("?")
-            base_url = url_parts[0]
-            params = url_parts[1] if len(url_parts) > 1 else ""
-            
-            # Mask client_id in params if present
-            if client_id and client_id in params:
-                params = params.replace(client_id, f"{client_id[:5]}...")
-                
-            st.info(f"Authorization URL generated successfully: {base_url}?{params}")
+        print(f"Requesting authorization URL from: {auth_endpoint}")
+        response = requests.get(auth_endpoint, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                auth_url = data.get('auth_url')
+                print(f"Authorization URL generated successfully")
+                return auth_url
+            else:
+                st.error(f"OAuth server error: {data.get('error')}")
+                return None
         else:
-            st.error("Authorization URL generation returned None")
+            st.error(f"OAuth server returned status code {response.status_code}")
+            return None
             
-        return auth_url
-        
-    except ImportError as ie:
-        st.error(f"Import error: {str(ie)}")
-        st.error("The required QuickBooks libraries are not installed properly.")
-        return None
     except Exception as e:
         st.error(f"Error generating authorization URL: {str(e)}")
         import traceback
-        st.error(traceback.format_exc())
+        print(traceback.format_exc())
         return None
 
 def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None):
@@ -3440,18 +3434,21 @@ def main():
                 # OAuth server URL - use internal network in Replit environment
                 oauth_server_url = "http://localhost:5001"  # Direct connection in same container
                 
+                # The redirect URI registered in the Intuit Developer Dashboard
+                callback_uri = "http://localhost:5000/callback"
+                
                 # Show redirect URI info
                 st.markdown("""
                 ### Important Redirect URI Information
                 
-                For QuickBooks OAuth to work properly, you must configure these two URIs in your Intuit Developer Dashboard:
+                For QuickBooks OAuth to work properly, you must configure these URIs in your Intuit Developer Dashboard:
                 """)
                 
-                st.code(f"{oauth_server_url}/api/quickbooks/callback", language="text")
+                st.code(f"{callback_uri}", language="text")
                 st.code(f"{default_redirect}", language="text")
                 
                 st.markdown("""
-                The first URI is for initial authorization, and the second is where you'll be redirected after success.
+                The first URI is for the callback during authorization, and the second is your application's base URL.
                 """)
             
             with col2:
@@ -3534,7 +3531,7 @@ def main():
                             params = {
                                 'client_id': client_id,
                                 'client_secret': client_secret,
-                                'redirect_uri': default_redirect,
+                                'redirect_uri': callback_uri,  # Use the correct callback URI
                                 'environment': environment
                             }
                             
