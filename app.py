@@ -800,42 +800,73 @@ def get_quickbooks_client():
         refresh_token = qb_settings.get('QB_REFRESH_TOKEN', {}).get('value')
         realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+        redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
         
-        # Initialize the auth client
-        auth_client = AuthClient(
+        # Import necessary modules for QuickBooks integration
+        from intuitlib.client import AuthClient as IntuitAuthClient
+        from intuitlib.enums import Scopes
+        from quickbooks.auth import Oauth2SessionManager
+        from quickbooks.client import QuickBooks
+        
+        # Initialize the OAuth session manager directly
+        session_manager = Oauth2SessionManager(
             client_id=client_id,
             client_secret=client_secret,
-            redirect_uri=qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback'),
-            environment=environment
-        )
-        
-        # For python-quickbooks we need to manually set the auth tokens
-        session_manager = auth_client.session_manager
-        session_manager.refresh_token = refresh_token
-        
-        # Initialize the QuickBooks client
-        client = QuickBooks(
-            client_id=client_id,
-            client_secret=client_secret,
+            access_token=qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', ''),
             refresh_token=refresh_token,
-            company_id=realm_id,
-            minorversion=65,
-            sandbox=(environment == 'sandbox')
+            realm_id=realm_id,
+            base_url="sandbox" if environment == "sandbox" else "production"
         )
         
-        # Refresh the access token if needed
-        try:
-            # Refresh token logic would be implemented here
-            # This differs from the old library - we'd need to refresh using the client
-            pass
-            database.update_quickbooks_token('QB_REFRESH_TOKEN', auth_client.refresh_token)
-        except AuthClientError as error:
-            return None, f"Error refreshing token: {str(error)}"
+        # Initialize the QuickBooks client with the session manager
+        client = QuickBooks(
+            session_manager=session_manager,
+            company_id=realm_id,
+            minorversion=65
+        )
+        
+        # Check if we need to refresh the token
+        token_expires_at = qb_settings.get('QB_ACCESS_TOKEN_EXPIRES_AT', {}).get('value')
+        if token_expires_at and float(token_expires_at) < time.time():
+            try:
+                # Initialize auth client for refreshing token
+                intuit_auth_client = IntuitAuthClient(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    environment=environment,
+                    redirect_uri=redirect_uri
+                )
+                
+                # Define scopes for refresh
+                scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
+                
+                # Refresh the token
+                intuit_auth_client.refresh(refresh_token=refresh_token)
+                
+                # Update tokens in database
+                database.update_quickbooks_token(
+                    'QB_ACCESS_TOKEN', 
+                    intuit_auth_client.access_token,
+                    time.time() + intuit_auth_client.expires_in
+                )
+                database.update_quickbooks_token(
+                    'QB_REFRESH_TOKEN', 
+                    intuit_auth_client.refresh_token
+                )
+                
+                # Update session manager with new tokens
+                session_manager.access_token = intuit_auth_client.access_token
+                session_manager.refresh_token = intuit_auth_client.refresh_token
+                
+            except Exception as error:
+                return None, f"Error refreshing token: {str(error)}"
         
         return client, None
         
     except Exception as e:
-        return None, f"Error initializing QuickBooks client: {str(e)}"
+        import traceback
+        error_details = traceback.format_exc()
+        return None, f"Error initializing QuickBooks client: {str(e)}\n{error_details}"
 
 def export_to_quickbooks(design_info, job_inputs, cost_results):
     """Export quote as an invoice to QuickBooks"""
@@ -848,6 +879,13 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return False, error
     
     try:
+        # Import necessary modules
+        from quickbooks.objects.customer import Customer
+        from quickbooks.objects.invoice import Invoice
+        from quickbooks.objects.item import Item
+        from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
+        from quickbooks.objects.base import Ref
+        
         # Find or create customer
         customer_name = job_inputs.get("customer_name", "New Customer")
         customers = Customer.query(f"SELECT * FROM Customer WHERE DisplayName = '{customer_name}'", qb=client)
@@ -869,12 +907,12 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         # Add job details to memo
         job_name = job_inputs.get("job_name", "Embroidery Job")
         invoice.CustomerMemo = {
-            "value": f"Job: {job_name} - {design_info['stitch_count']} stitches, {job_inputs['color_count']} colors"
+            "value": f"Job: {job_name} - {design_info['stitch_count']} stitches, {job_inputs.get('color_count', 1)} colors"
         }
         
         # Add line item for embroidery services
         line = SalesItemLine()
-        line.Description = f"Embroidery services - {job_inputs.get('quantity')} pieces"
+        line.Description = f"Embroidery services - {job_inputs.get('quantity', 1)} pieces"
         line.Amount = cost_results['total_job_cost']
         line.DetailType = "SalesItemLineDetail"
         
@@ -890,11 +928,12 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         # Set line item details
         detail = SalesItemLineDetail()
         detail.ItemRef = item.to_ref()
-        detail.Qty = job_inputs['quantity']
+        detail.Qty = job_inputs.get('quantity', 1)
         detail.UnitPrice = cost_results['price_per_piece']
         line.SalesItemLineDetail = detail
         
         # Add line to invoice
+        invoice.Line = []
         invoice.Line.append(line)
         
         # Save the invoice
@@ -904,7 +943,9 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return True, f"Invoice #{invoice.DocNumber}" if hasattr(invoice, 'DocNumber') else "Invoice created successfully"
         
     except Exception as e:
-        return False, f"Error exporting to QuickBooks: {str(e)}"
+        import traceback
+        error_details = traceback.format_exc()
+        return False, f"Error exporting to QuickBooks: {str(e)}\n{error_details}"
 
 def get_quickbooks_auth_url():
     """Generate QuickBooks authorization URL"""
@@ -922,22 +963,11 @@ def get_quickbooks_auth_url():
         return None
     
     try:
-        # Create the auth client
-        auth_client = AuthClient(
-            client_id=client_id,
-            client_secret=client_secret,
-            environment=environment,
-            redirect_uri=redirect_uri
-        )
-        
-        # Define the scopes
-        scopes = [
-            'com.intuit.quickbooks.accounting',
-            'com.intuit.quickbooks.payment'
-        ]
-        
-        # Use the python-quickbooks library to get auth URL
+        # Import the necessary libraries
         from intuitlib.client import AuthClient as IntuitAuthClient
+        from intuitlib.enums import Scopes
+        
+        # Initialize the Intuit auth client
         intuit_auth_client = IntuitAuthClient(
             client_id=client_id,
             client_secret=client_secret,
@@ -945,6 +975,10 @@ def get_quickbooks_auth_url():
             redirect_uri=redirect_uri
         )
         
+        # Define the scopes using the proper Scopes enum
+        scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
+        
+        # Get the authorization URL
         auth_url = intuit_auth_client.get_authorization_url(scopes)
         return auth_url
     except Exception as e:
@@ -2563,8 +2597,12 @@ def main():
                             if "realmId=" in auth_code_url:
                                 realm_id = auth_code_url.split("realmId=")[1].split("&")[0]
                                 database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                                
+                            # Need to import Scopes for the token exchange
+                            from intuitlib.enums import Scopes
                             
                             # Exchange code for tokens
+                            scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
                             intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
                             
                             # Save tokens to database
