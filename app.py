@@ -1351,12 +1351,14 @@ def get_quickbooks_auth_url():
     
     # Create a redirect URI based on the Replit domain
     # CRITICAL: This must match EXACTLY what's registered in Intuit Developer Dashboard
-    # Based on the error message, let's try WITHOUT the /callback suffix
     if replit_domain:
-        # IMPORTANT: Looking at the error message, it appears the URI in Intuit Developer 
-        # Dashboard might be registered WITHOUT the /callback suffix
-        # Try without /callback as this is a common configuration in Intuit Developer Dashboard
-        default_redirect_uri = f"https://{replit_domain}" 
+        # Based on the error message about redirect_uri being invalid,
+        # we need to use the exact format registered in the Intuit Developer Dashboard
+        # The error indicates we need to include the /callback path
+        default_redirect_uri = f"https://{replit_domain}/callback"
+        
+        # NOTE: If you ever change the redirect URI in Intuit Developer Dashboard,
+        # you must update this code to match EXACTLY what's registered there
     else:
         default_redirect_uri = "http://localhost:5000"
     
