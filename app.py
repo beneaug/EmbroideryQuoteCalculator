@@ -1854,6 +1854,34 @@ def main():
                     <span style="color: white;">Customer Quote PDF</span>
                 </a>
                 ''', unsafe_allow_html=True)
+            
+            # Add QuickBooks Export Option
+            if QUICKBOOKS_AVAILABLE:
+                st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+                
+                # Check if QuickBooks is authenticated
+                is_authenticated, auth_message = database.get_quickbooks_auth_status()
+                
+                if is_authenticated:
+                    qb_export = st.checkbox("Export to QuickBooks", 
+                                        help="Create an invoice in QuickBooks based on this quote")
+                    
+                    if qb_export and st.button("Export Now", 
+                                            type="primary", 
+                                            key="export_to_qb_button"):
+                        with st.spinner("Exporting to QuickBooks..."):
+                            success, message = export_to_quickbooks(
+                                st.session_state.design_info, 
+                                job_inputs, 
+                                cost_results
+                            )
+                            
+                            if success:
+                                st.success(f"Successfully exported to QuickBooks: {message}")
+                            else:
+                                st.error(f"Failed to export to QuickBooks: {message}")
+                else:
+                    st.warning(f"QuickBooks integration not available: {auth_message}. Please configure in Admin settings.")
         
         elif calculate_pressed and ('design_info' not in st.session_state or not st.session_state.design_info):
             st.error("Please upload a design file or complete the manual entry form to generate a quote.")
@@ -1899,6 +1927,30 @@ def main():
                             get_download_link(customer_pdf, f"customer_quote_{entry['job_name']}_{entry['timestamp'].strftime('%Y%m%d')}.pdf", "Download Customer Quote PDF"),
                             unsafe_allow_html=True
                         )
+                    
+                    # Add QuickBooks Export Option for history items too
+                    if QUICKBOOKS_AVAILABLE:
+                        st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+                        
+                        # Check if QuickBooks is authenticated
+                        is_authenticated, auth_message = database.get_quickbooks_auth_status()
+                        
+                        if is_authenticated:
+                            qb_export = st.checkbox(f"Export to QuickBooks", key=f"qb_export_{i}",
+                                               help="Create an invoice in QuickBooks based on this quote")
+                            
+                            if qb_export and st.button("Export Now", type="primary", key=f"export_to_qb_button_{i}"):
+                                with st.spinner("Exporting to QuickBooks..."):
+                                    success, message = export_to_quickbooks(
+                                        entry['design_info'], 
+                                        entry['job_inputs'], 
+                                        entry['cost_results']
+                                    )
+                                    
+                                    if success:
+                                        st.success(f"Successfully exported to QuickBooks: {message}")
+                                    else:
+                                        st.error(f"Failed to export to QuickBooks: {message}")
     
     # Admin Settings Tab
     with tab3:
