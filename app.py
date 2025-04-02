@@ -786,13 +786,102 @@ def main():
         # Step 1: File Upload or Manual Entry Section
         st.header("Step 1: Choose File or Manual Entry")
         
-        # Toggle between file upload and manual entry
-        entry_method = st.radio(
-            "Select entry method",
-            ["Upload Design File", "Manual Entry (No Design File)"],
-            horizontal=True,
-            help="Choose whether to upload a design file or enter stitch count manually"
-        )
+        # Custom CSS for method selection cards
+        st.markdown("""
+        <style>
+        .method-container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .method-card {
+            flex: 1;
+            background-color: #fff9f0;
+            border: 2px solid #e9e9e9;
+            border-radius: 15px;
+            padding: 20px 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .method-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .method-card.selected {
+            border-color: #f3770c;
+            background-color: #fff2dd;
+            box-shadow: 0 5px 15px rgba(243, 119, 12, 0.2);
+        }
+        .method-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: #8b6c55;
+        }
+        .selected .method-icon {
+            color: #f3770c;
+        }
+        .method-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #3a1d0d;
+            margin-bottom: 5px;
+        }
+        .method-desc {
+            font-size: 0.9rem;
+            color: #8b6c55;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Default selection
+        if 'entry_method' not in st.session_state:
+            st.session_state.entry_method = "Upload Design File"
+        
+        # Method selection with custom cards
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            upload_selected = st.session_state.entry_method == "Upload Design File"
+            upload_class = "selected" if upload_selected else ""
+            
+            upload_card = f"""
+            <div class="method-card {upload_class}" onclick="
+                document.querySelector('#upload-radio').click();
+            ">
+                <div class="method-icon">📁</div>
+                <div class="method-title">Upload Design File</div>
+                <div class="method-desc">Upload a DST or U01 file for accurate analysis</div>
+            </div>
+            """
+            st.markdown(upload_card, unsafe_allow_html=True)
+            upload_radio = st.radio("", ["Upload Design File"], key="upload-radio", label_visibility="collapsed")
+            if upload_radio == "Upload Design File" and not upload_selected:
+                st.session_state.entry_method = "Upload Design File"
+                st.rerun()
+        
+        with col2:
+            manual_selected = st.session_state.entry_method == "Manual Entry (No Design File)"
+            manual_class = "selected" if manual_selected else ""
+            
+            manual_card = f"""
+            <div class="method-card {manual_class}" onclick="
+                document.querySelector('#manual-radio').click();
+            ">
+                <div class="method-icon">✏️</div>
+                <div class="method-title">Manual Entry</div>
+                <div class="method-desc">Enter stitch count and dimensions manually</div>
+            </div>
+            """
+            st.markdown(manual_card, unsafe_allow_html=True)
+            manual_radio = st.radio("", ["Manual Entry (No Design File)"], key="manual-radio", label_visibility="collapsed")
+            if manual_radio == "Manual Entry (No Design File)" and not manual_selected:
+                st.session_state.entry_method = "Manual Entry (No Design File)"
+                st.rerun()
+        
+        # Get the current entry method
+        entry_method = st.session_state.entry_method
         
         if entry_method == "Upload Design File":
             uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
