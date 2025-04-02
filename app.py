@@ -868,7 +868,9 @@ def main():
     
     with tab1:
         # Step 1: File Upload or Manual Entry Section
-        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #3a1d0d;">Step 1: Choose Design Source</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #492c14;">Step 1: Choose Design Source</h2>', unsafe_allow_html=True)
+        # Add tiny line below the header to match reference image
+        st.markdown('<div style="width: 40px; height: 2px; background-color: #f3770c; margin-top: -10px; margin-bottom: 15px;"></div>', unsafe_allow_html=True)
         
         # Simple toggle for entry method
         entry_method = st.radio(
@@ -886,23 +888,41 @@ def main():
             entry_method = "Manual Entry (No Design File)"
         
         if entry_method == "Upload Design File":
-            # File uploader with custom styling
+            # File uploader with custom styling - style like the reference image
             st.markdown("""
             <style>
             .uploadFile {
-                background-color: #ffecc6; 
-                background-image: linear-gradient(120deg, #ffecc6 0%, #fcd587 100%);
-                border-radius: 15px !important;
-                padding: 10px !important;
-                margin-bottom: 10px !important;
+                background-color: #fff2d1 !important; 
+                border: 1px dashed #e6b33c !important;
+                border-radius: 8px !important;
+                padding: 20px !important;
+                margin-bottom: 15px !important;
+                text-align: center !important;
             }
             .uploadFile div {
                 background-color: transparent !important;
             }
+            .uploadFile > div:first-child {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100px;
+            }
             </style>
             """, unsafe_allow_html=True)
             
-            uploaded_file = st.file_uploader("Upload DST File", type=["dst", "u01"],
+            st.markdown("#### Upload DST File")
+            
+            # Message for drag & drop (before the uploader)
+            st.markdown("""
+            <div style="margin-bottom: 10px; color: #666; text-align: center;">
+                Drag and drop file here<br>
+                <span style="font-size: 12px; color: #888;">Limit 200MB per file • DST, U01</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            uploaded_file = st.file_uploader("", type=["dst", "u01"],
                                          help="Upload your embroidery design file in DST or U01 format",
                                          key="file_uploader")
         else:
@@ -1048,7 +1068,9 @@ def main():
                         """, unsafe_allow_html=True)
         
         # Step 2: Job Information & Materials
-        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #3a1d0d;">Step 2: Job Information & Materials</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #492c14;">Step 2: Job Information & Materials</h2>', unsafe_allow_html=True)
+        # Add tiny line below the header to match reference image
+        st.markdown('<div style="width: 40px; height: 2px; background-color: #f3770c; margin-top: -10px; margin-bottom: 15px;"></div>', unsafe_allow_html=True)
         
         # Job Info Card with enhanced styling
         st.markdown("""
@@ -1272,6 +1294,11 @@ def main():
         # Update session state to keep in sync with preview checkbox
         st.session_state.use_foam = use_foam
         
+        # Step 3: Pricing Information
+        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #492c14;">Step 3: Pricing Information</h2>', unsafe_allow_html=True)
+        # Add tiny line below the header to match reference image
+        st.markdown('<div style="width: 40px; height: 2px; background-color: #f3770c; margin-top: -10px; margin-bottom: 15px;"></div>', unsafe_allow_html=True)
+
         # Pricing Information Card with enhanced styling
         st.markdown("""
         <div style="
@@ -1282,7 +1309,7 @@ def main():
             margin-bottom: 5px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         ">
-            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Pricing Information</h3>
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Pricing & Markup</h3>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1300,43 +1327,6 @@ def main():
                                              value=float(DEFAULT_DIGITIZING_FEE), 
                                              step=5.0,
                                              help="Fee for digitizing complex designs")
-            
-            # Labor worker selection
-            workers = database.get_labor_workers()
-            active_workers = [w for w in workers if w['is_active']]
-            
-            if active_workers:
-                st.markdown("""
-                <div style="margin-top: 20px;">
-                    <h4 style="font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #3a1d0d; margin-bottom: 8px;">
-                        Active Labor Workers
-                    </h4>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Display active workers with checkboxes
-                selected_workers = []
-                for worker in active_workers:
-                    is_selected = st.checkbox(
-                        f"{worker['name']} (${worker['hourly_rate']:.2f}/hr)", 
-                        value=True,
-                        key=f"worker_select_{worker['id']}"
-                    )
-                    if is_selected:
-                        selected_workers.append(worker)
-                
-                # Option to show all workers
-                if len(workers) > len(active_workers):
-                    with st.expander("Show All Workers"):
-                        inactive_workers = [w for w in workers if not w['is_active']]
-                        for worker in inactive_workers:
-                            is_selected = st.checkbox(
-                                f"{worker['name']} (${worker['hourly_rate']:.2f}/hr)", 
-                                value=False,
-                                key=f"worker_select_{worker['id']}"
-                            )
-                            if is_selected:
-                                selected_workers.append(worker)
         
         with col2:
             setup_fee = st.number_input("Setup Fee ($)", 
@@ -1344,6 +1334,133 @@ def main():
                                     value=0.0, 
                                     step=5.0,
                                     help="One-time fee for setup, etc.")
+        
+        # Labor Workers Section with enhanced styling - match reference image
+        st.markdown("""
+        <div style="
+            background-color: #ffecc6; 
+            background-image: linear-gradient(120deg, #ffecc6 0%, #fcd587 100%);
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        ">
+            <h3 style="margin: 0; color: #3a1d0d; font-weight: 700; font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;">Labor Workers</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Style for the labor workers table to match the reference image
+        st.markdown("""
+        <style>
+        .labor-worker-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .labor-worker-table th {
+            background-color: #f8f8f8;
+            color: #333;
+            font-weight: 600;
+            text-align: left;
+            padding: 10px 15px;
+            border-bottom: 1px solid #eaeaea;
+        }
+        .labor-worker-table td {
+            padding: 10px 15px;
+            border-bottom: 1px solid #eaeaea;
+        }
+        .labor-worker-table tr:last-child td {
+            border-bottom: none;
+        }
+        .labor-worker-table tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        .labor-worker-checkbox {
+            margin-right: 10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Labor worker selection
+        workers = database.get_labor_workers()
+        active_workers = [w for w in workers if w['is_active']]
+        
+        if active_workers:
+            # Create table headers
+            st.markdown("""
+            <table class="labor-worker-table">
+                <thead>
+                    <tr>
+                        <th style="width: 10%;">Select</th>
+                        <th style="width: 50%;">Worker Name</th>
+                        <th style="width: 20%;">Hourly Rate</th>
+                        <th style="width: 20%;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """, unsafe_allow_html=True)
+            
+            # Display active workers with checkboxes
+            selected_workers = []
+            for worker in active_workers:
+                # Create a checkbox for worker selection
+                is_selected = st.checkbox(
+                    "",  # Empty label as we'll display name in table
+                    value=True,
+                    key=f"worker_select_{worker['id']}",
+                    help=f"Select {worker['name']} for this job"
+                )
+                
+                if is_selected:
+                    selected_workers.append(worker)
+                
+                # Display worker information in table format
+                st.markdown(f"""
+                <tr>
+                    <td></td>
+                    <td>{worker['name']}</td>
+                    <td>${worker['hourly_rate']:.2f}/hr</td>
+                    <td><span style="color: #28a745; font-weight: 500;">Active</span></td>
+                </tr>
+                """, unsafe_allow_html=True)
+            
+            # Option to show all workers including inactive
+            if len(workers) > len(active_workers):
+                inactive_workers = [w for w in workers if not w['is_active']]
+                for worker in inactive_workers:
+                    # Create a checkbox for worker selection
+                    is_selected = st.checkbox(
+                        "",  # Empty label as we'll display name in table
+                        value=False,
+                        key=f"worker_select_{worker['id']}",
+                        help=f"Select {worker['name']} for this job"
+                    )
+                    
+                    if is_selected:
+                        selected_workers.append(worker)
+                    
+                    # Display worker information in table format
+                    st.markdown(f"""
+                    <tr>
+                        <td></td>
+                        <td>{worker['name']}</td>
+                        <td>${worker['hourly_rate']:.2f}/hr</td>
+                        <td><span style="color: #dc3545; font-weight: 500;">Inactive</span></td>
+                    </tr>
+                    """, unsafe_allow_html=True)
+            
+            # Close the table
+            st.markdown("""
+                </tbody>
+            </table>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning("No labor workers found. Please add workers in the Admin Settings tab.")
         
         # Calculate Button with enhanced styling
         st.markdown("""
