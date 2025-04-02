@@ -1205,33 +1205,11 @@ def main():
                 else:
                     st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
             
-            # Buffer time settings
-            st.markdown("#### Buffer Time Settings")
-            st.caption("Time between production cycles for product removal and setup.")
+            # Simplified buffer time info
+            buffer_minutes = float(DEFAULT_BUFFER_MINUTES)
+            buffer_percentage = float(DEFAULT_BUFFER_PERCENTAGE)
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                buffer_minutes = st.number_input(
-                    "Fixed Buffer Time (minutes)",
-                    min_value=0.0,
-                    max_value=15.0,
-                    value=float(DEFAULT_BUFFER_MINUTES),
-                    format="%.1f",
-                    step=0.5,
-                    help="Fixed time in minutes added between each production cycle"
-                )
-            
-            with col2:
-                buffer_percentage = st.number_input(
-                    "Cycle Time Percentage (%)",
-                    min_value=0.0,
-                    max_value=25.0,
-                    value=float(DEFAULT_BUFFER_PERCENTAGE),
-                    format="%.1f",
-                    step=1.0,
-                    help="Additional buffer time calculated as a percentage of the cycle time"
-                )
+            st.info(f"Buffer time: {buffer_minutes:.1f} minutes + {buffer_percentage:.1f}% runtime (set in Admin Settings)")
             
             # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
@@ -1689,11 +1667,11 @@ def main():
                 <a href="data:application/pdf;base64,{base64.b64encode(detailed_pdf.getvalue()).decode()}" 
                    download="{internal_filename}" 
                    class="download-button">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="white" viewBox="0 0 16 16">
                         <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
                         <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
                     </svg>
-                    Internal Quote PDF
+                    <span style="color: white;">Internal Quote PDF</span>
                 </a>
                 ''', unsafe_allow_html=True)
             
@@ -1702,11 +1680,11 @@ def main():
                 <a href="data:application/pdf;base64,{base64.b64encode(customer_pdf.getvalue()).decode()}" 
                    download="{customer_filename}" 
                    class="download-button">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="white" viewBox="0 0 16 16">
                         <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
                         <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
                     </svg>
-                    Customer Quote PDF
+                    <span style="color: white;">Customer Quote PDF</span>
                 </a>
                 ''', unsafe_allow_html=True)
         
