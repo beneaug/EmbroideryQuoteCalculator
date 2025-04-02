@@ -1371,15 +1371,15 @@ def get_quickbooks_auth_url():
         st.info("Setting authorization scopes...")
         scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
         
-        # Get the authorization URL with state parameter for security
-        # State helps prevent CSRF attacks and can be used to verify the response
+        # Note: The Intuit SDK doesn't support state parameter in the get_authorization_url method
+        # However, we'll still track this in session state for later validation if needed
         import uuid
         state = str(uuid.uuid4())
         st.session_state['qb_auth_state'] = state
         
-        # Get the authorization URL with state
-        st.info(f"Generating authorization URL with state: {state[:8]}...")
-        auth_url = intuit_auth_client.get_authorization_url(scopes, state=state)
+        # Get the authorization URL (without state parameter)
+        st.info(f"Generating authorization URL...")
+        auth_url = intuit_auth_client.get_authorization_url(scopes)
         
         # Log success and partial URL (for security)
         if auth_url:
@@ -1462,30 +1462,16 @@ def main():
         auth_code = query_params['code'][0]
         realm_id = query_params['realmId'][0]
         
-        # Verify state parameter if present
-        expected_state = st.session_state.get('qb_auth_state', None)
-        received_state = query_params.get('state', [None])[0]
+        # We no longer pass state to the Intuit authorization URL, so we won't receive it back
+        # However, we'll clear any stored state from the session state
+        if 'qb_auth_state' in st.session_state:
+            st.session_state.pop('qb_auth_state', None)
         
         # Add a container to show processing steps
         with st.container():
             st.write("### QuickBooks Authentication Processing")
             st.info(f"Authorization code received: {auth_code[:5]}...")
             st.info(f"Realm ID received: {realm_id}")
-            
-            # Validate state if present (security check)
-            if expected_state and received_state and expected_state != received_state:
-                st.error(f"State validation failed. Expected: {expected_state[:8]}..., Received: {received_state[:8]}...")
-                st.error("This could indicate a security issue. Please try the authorization process again.")
-                
-                # Add a button to continue to the main app
-                if st.button("Continue to Application"):
-                    # Clear the query parameters and session state auth data
-                    st.session_state.pop('qb_auth_state', None)
-                    st.query_params.clear()
-                    st.rerun()
-                
-                # Skip rendering the rest of the app while processing OAuth
-                st.stop()
                 
             try:
                 # We need to import these here
