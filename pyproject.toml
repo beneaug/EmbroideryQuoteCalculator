@@ -4,12 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
+    "intuit-oauth>=1.2.6",
     "matplotlib>=3.10.1",
     "numpy>=2.2.4",
     "pandas>=2.2.3",
     "pillow>=11.1.0",
     "psycopg2-binary>=2.9.10",
     "pyembroidery>=1.5.1",
+    "quickbooks-python>=0.1.5",
     "reportlab>=4.3.1",
     "sqlalchemy>=2.0.40",
     "streamlit>=1.44.0",

@@ -256,3 +256,73 @@ def get_recent_quotes(limit=10):
     except SQLAlchemyError as e:
         st.error(f"Database error: {str(e)}")
         return []
+
+def get_quickbooks_settings():
+    """Get all QuickBooks integration settings from the database"""
+    try:
+        with get_connection() as conn:
+            query = "SELECT name, value, description FROM quickbooks_settings ORDER BY id"
+            result = conn.execute(text(query))
+            settings = {row[0]: {"value": row[1], "description": row[2]} for row in result}
+            return settings
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        # Return empty dictionary as fallback
+        return {}
+        
+def update_quickbooks_token(token_type, token_value, token_expires_at=None):
+    """Update a QuickBooks token in the database"""
+    try:
+        with get_connection() as conn:
+            if token_expires_at:
+                query = """
+                UPDATE quickbooks_settings 
+                SET value = :value, 
+                    token_expires_at = :token_expires_at,
+                    updated_at = CURRENT_TIMESTAMP 
+                WHERE name = :name
+                """
+                conn.execute(text(query), {
+                    "value": token_value,
+                    "name": token_type,
+                    "token_expires_at": token_expires_at
+                })
+            else:
+                query = """
+                UPDATE quickbooks_settings 
+                SET value = :value, 
+                    updated_at = CURRENT_TIMESTAMP 
+                WHERE name = :name
+                """
+                conn.execute(text(query), {
+                    "value": token_value,
+                    "name": token_type
+                })
+            conn.commit()
+            return True
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        return False
+
+def get_quickbooks_auth_status():
+    """Check if QuickBooks authorization is valid and not expired"""
+    try:
+        with get_connection() as conn:
+            query = """
+            SELECT value, token_expires_at 
+            FROM quickbooks_settings 
+            WHERE name = 'QB_ACCESS_TOKEN'
+            """
+            result = conn.execute(text(query))
+            row = result.fetchone()
+            
+            if not row or not row[0]:
+                return False, "Not authenticated"
+            
+            if row[1] and row[1] < time.time():
+                return False, "Token expired"
+                
+            return True, "Authenticated"
+    except SQLAlchemyError as e:
+        st.error(f"Database error: {str(e)}")
+        return False, str(e)

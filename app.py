@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import io
 import base64
+import json
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -17,7 +18,23 @@ import os
 import math
 import time
 import datetime
+import requests
+import urllib.parse
 import database
+
+# Import QuickBooks Libraries
+try:
+    from intuitlib.client import AuthClient
+    from intuitlib.exceptions import AuthClientError
+    from quickbooks.objects.invoice import Invoice, SalesItemLineDetail
+    from quickbooks.objects.customer import Customer
+    from quickbooks.objects.item import Item
+    from quickbooks.objects.detailline import SalesItemLine
+    from quickbooks.objects.base import Ref
+    from quickbooks import QuickBooks
+    QUICKBOOKS_AVAILABLE = True
+except ImportError:
+    QUICKBOOKS_AVAILABLE = False
 
 # Set page config
 st.set_page_config(
@@ -738,6 +755,156 @@ def get_download_link(buffer, filename, text):
     </a>
     '''
     return href
+
+# QuickBooks Integration Functions
+def get_quickbooks_client():
+    """Initialize and return a QuickBooks client"""
+    if not QUICKBOOKS_AVAILABLE:
+        return None, "QuickBooks libraries not available"
+    
+    # Get settings from database
+    qb_settings = database.get_quickbooks_settings()
+    
+    # Check if we have all required settings
+    required_settings = ['QB_CLIENT_ID', 'QB_CLIENT_SECRET', 'QB_REALM_ID', 'QB_REFRESH_TOKEN']
+    missing_settings = [s for s in required_settings if not qb_settings.get(s, {}).get('value')]
+    
+    if missing_settings:
+        return None, f"Missing QuickBooks settings: {', '.join(missing_settings)}"
+    
+    try:
+        # Initialize the auth client
+        auth_client = AuthClient(
+            client_id=qb_settings.get('QB_CLIENT_ID', {}).get('value'),
+            client_secret=qb_settings.get('QB_CLIENT_SECRET', {}).get('value'),
+            environment=qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox'),
+            redirect_uri=qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
+        )
+        
+        # Initialize the QuickBooks client
+        client = QuickBooks(
+            auth_client=auth_client,
+            refresh_token=qb_settings.get('QB_REFRESH_TOKEN', {}).get('value'),
+            company_id=qb_settings.get('QB_REALM_ID', {}).get('value')
+        )
+        
+        # Refresh the access token
+        try:
+            auth_client.refresh()
+            # Save the refreshed tokens
+            database.update_quickbooks_token(
+                'QB_ACCESS_TOKEN', 
+                auth_client.access_token,
+                time.time() + auth_client.expires_in
+            )
+            database.update_quickbooks_token('QB_REFRESH_TOKEN', auth_client.refresh_token)
+        except AuthClientError as error:
+            return None, f"Error refreshing token: {str(error)}"
+        
+        return client, None
+        
+    except Exception as e:
+        return None, f"Error initializing QuickBooks client: {str(e)}"
+
+def export_to_quickbooks(design_info, job_inputs, cost_results):
+    """Export quote as an invoice to QuickBooks"""
+    if not QUICKBOOKS_AVAILABLE:
+        return False, "QuickBooks integration is not available. Please install the required libraries."
+    
+    # Get QuickBooks client
+    client, error = get_quickbooks_client()
+    if not client:
+        return False, error
+    
+    try:
+        # Find or create customer
+        customer_name = job_inputs.get("customer_name", "New Customer")
+        customers = Customer.query(f"SELECT * FROM Customer WHERE DisplayName = '{customer_name}'", qb=client)
+        
+        if not customers:
+            # Create new customer
+            customer = Customer()
+            customer.DisplayName = customer_name
+            if customer_name:
+                customer.CompanyName = customer_name
+            customer.save(qb=client)
+        else:
+            customer = customers[0]
+        
+        # Create new invoice
+        invoice = Invoice()
+        invoice.CustomerRef = customer.to_ref()
+        
+        # Add job details to memo
+        job_name = job_inputs.get("job_name", "Embroidery Job")
+        invoice.CustomerMemo = {
+            "value": f"Job: {job_name} - {design_info['stitch_count']} stitches, {job_inputs['color_count']} colors"
+        }
+        
+        # Add line item for embroidery services
+        line = SalesItemLine()
+        line.Description = f"Embroidery services - {job_inputs.get('quantity')} pieces"
+        line.Amount = cost_results['total_job_cost']
+        line.DetailType = "SalesItemLineDetail"
+        
+        # Get service item reference - find or create
+        items = Item.query("SELECT * FROM Item WHERE Type = 'Service' AND Name = 'Embroidery Services'", qb=client)
+        if not items:
+            # Would need to create a service item - this is a complex operation
+            # and would require additional setup in QuickBooks first
+            return False, "Embroidery Services item not found in QuickBooks. Please create this item in QuickBooks first."
+        
+        item = items[0]
+        
+        # Set line item details
+        detail = SalesItemLineDetail()
+        detail.ItemRef = item.to_ref()
+        detail.Qty = job_inputs['quantity']
+        detail.UnitPrice = cost_results['price_per_piece']
+        line.SalesItemLineDetail = detail
+        
+        # Add line to invoice
+        invoice.Line.append(line)
+        
+        # Save the invoice
+        invoice.save(qb=client)
+        
+        # Return success with invoice ID
+        return True, f"Invoice #{invoice.DocNumber}" if hasattr(invoice, 'DocNumber') else "Invoice created successfully"
+        
+    except Exception as e:
+        return False, f"Error exporting to QuickBooks: {str(e)}"
+
+def get_quickbooks_auth_url():
+    """Generate QuickBooks authorization URL"""
+    if not QUICKBOOKS_AVAILABLE:
+        return None
+    
+    qb_settings = database.get_quickbooks_settings()
+    client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value')
+    redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback')
+    environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+    
+    if not client_id or not redirect_uri:
+        return None
+    
+    try:
+        auth_client = AuthClient(
+            client_id=client_id,
+            client_secret=qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''),
+            environment=environment,
+            redirect_uri=redirect_uri
+        )
+        
+        scopes = [
+            'com.intuit.quickbooks.accounting',
+            'com.intuit.quickbooks.payment'
+        ]
+        
+        auth_url = auth_client.get_authorization_url(scopes)
+        return auth_url
+    except Exception:
+        return None
 
 def get_productivity_rate(complex_production, coloreel_enabled, custom_rate=None):
     """Calculate productivity rate based on the selected options"""
@@ -1742,6 +1909,7 @@ def main():
         material_settings_updated = False
         machine_settings_updated = False
         labor_settings_updated = False
+        quickbooks_settings_updated = False
         
         # Material Settings
         with st.expander("Material Settings", expanded=True):
@@ -2116,6 +2284,169 @@ def main():
             else:
                 st.info("No workers found. Add your first worker using the form above.")
         
+        # QuickBooks Settings
+        with st.expander("QuickBooks Integration Settings"):
+            st.subheader("QuickBooks API Configuration")
+            
+            # Get current QuickBooks settings
+            qb_settings = database.get_quickbooks_settings()
+            
+            # Authentication status
+            auth_status, auth_message = database.get_quickbooks_auth_status()
+            
+            # Display status with appropriate color
+            status_color = "green" if auth_status else "red"
+            st.markdown(f"""
+            <div style="
+                background-color: {'#d4edda' if auth_status else '#f8d7da'}; 
+                color: {'#155724' if auth_status else '#721c24'}; 
+                padding: 10px; 
+                border-radius: 10px; 
+                margin-bottom: 15px;
+                border: 1px solid {'#c3e6cb' if auth_status else '#f5c6cb'};
+            ">
+                <strong>Status:</strong> {auth_message}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Create columns for the form
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Environment selection
+                environment = st.selectbox(
+                    "Environment",
+                    options=["sandbox", "production"],
+                    index=0 if qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox') == 'sandbox' else 1,
+                    help="Select 'sandbox' for testing or 'production' for live integration"
+                )
+                
+                # Client ID
+                client_id = st.text_input(
+                    "Client ID", 
+                    value=qb_settings.get('QB_CLIENT_ID', {}).get('value', ''),
+                    help="QuickBooks API Client ID from Intuit Developer dashboard"
+                )
+                
+                # Client Secret
+                client_secret = st.text_input(
+                    "Client Secret", 
+                    value=qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''),
+                    type="password",
+                    help="QuickBooks API Client Secret from Intuit Developer dashboard"
+                )
+                
+                # Realm ID (Company ID)
+                realm_id = st.text_input(
+                    "Company ID (Realm ID)", 
+                    value=qb_settings.get('QB_REALM_ID', {}).get('value', ''),
+                    help="QuickBooks company ID (found in Account settings or API dashboard)"
+                )
+            
+            with col2:
+                # Redirect URI
+                redirect_uri = st.text_input(
+                    "Redirect URI", 
+                    value=qb_settings.get('QB_REDIRECT_URI', {}).get('value', 'http://localhost:5000/callback'),
+                    help="URI where QuickBooks will redirect after authorization"
+                )
+                
+                # Refresh Token
+                refresh_token = st.text_input(
+                    "Refresh Token", 
+                    value=qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', ''),
+                    type="password",
+                    help="Long-lived token for API authentication (obtained after authorization)"
+                )
+            
+            # Save settings button
+            if st.button("Save QuickBooks Settings"):
+                # Update settings in database
+                database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
+                database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
+                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
+                database.update_setting("quickbooks_settings", "QB_REFRESH_TOKEN", refresh_token)
+                database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
+                
+                st.success("QuickBooks settings saved successfully!")
+            
+            # Generate authorization URL button
+            if client_id and redirect_uri:
+                auth_url = get_quickbooks_auth_url()
+                if auth_url:
+                    st.markdown("### Authorization")
+                    st.info("Click the button below to authorize this application with QuickBooks.")
+                    
+                    # Using HTML/CSS for a nicer button design
+                    st.markdown(f"""
+                    <a href="{auth_url}" target="_blank" style="
+                        display: inline-block;
+                        background: linear-gradient(90deg, #f3770c 0%, #ff9d45 100%);
+                        color: white;
+                        padding: 8px 16px;
+                        border-radius: 8px;
+                        text-decoration: none;
+                        font-weight: bold;
+                        margin-top: 10px;
+                    ">
+                        Authorize with QuickBooks
+                    </a>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("""
+                    **After authorization:**
+                    1. QuickBooks will redirect to your Redirect URI with a code
+                    2. Copy the entire redirect URL
+                    3. Enter it below to complete the authorization process
+                    """)
+                    
+                    auth_code_url = st.text_input("Paste the redirect URL here:")
+                    if auth_code_url and "code=" in auth_code_url:
+                        # Extract the authorization code
+                        try:
+                            auth_code = auth_code_url.split("code=")[1].split("&")[0]
+                            
+                            # Initialize auth client
+                            auth_client = AuthClient(
+                                client_id=client_id,
+                                client_secret=client_secret,
+                                environment=environment,
+                                redirect_uri=redirect_uri
+                            )
+                            
+                            # Exchange code for tokens
+                            auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                            
+                            # Save tokens to database
+                            database.update_quickbooks_token(
+                                "QB_ACCESS_TOKEN", 
+                                auth_client.access_token,
+                                time.time() + auth_client.expires_in
+                            )
+                            database.update_quickbooks_token(
+                                "QB_REFRESH_TOKEN", 
+                                auth_client.refresh_token
+                            )
+                            
+                            st.success("Authorization successful! Tokens saved.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Authorization failed: {str(e)}")
+            
+            # Add info about required QuickBooks setup
+            st.markdown("""
+            ### QuickBooks Requirements
+            
+            Before using the QuickBooks integration, ensure you have:
+            
+            1. An Intuit Developer account with an app set up
+            2. The "Embroidery Services" item created in your QuickBooks account
+            3. Customer records with matching names to your quotes
+            
+            For sandbox testing, you'll need to create these items in your sandbox company.
+            """)
+            
         # View Database Quotes
         with st.expander("View Quote Database"):
             st.subheader("Recent Quotes")
