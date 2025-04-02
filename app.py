@@ -1187,9 +1187,10 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                 print(f"Estimate saved with ID: {estimate_id}, Number: {estimate_number}")
                 
                 # Return success message with specific instructions
+                # Format the message to make it easy to extract the estimate ID for direct linking
                 return True, (
                     f"Estimate #{estimate_number} (ID: {estimate_id}) created successfully! "
-                    f"You can find it in QuickBooks {environment} under Sales > Estimates."
+                    f"You can view it in QuickBooks {environment} under Sales > Estimates."
                 )
                 
             except Exception as ie:
@@ -2429,7 +2430,26 @@ def main():
                                 
                                 # Update the UI with the result (no page refresh)
                                 if success:
-                                    status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                    # Extract estimate ID and other info from the message for direct linking
+                                    import re
+                                    estimate_id_match = re.search(r'ID: ([^)]+)', message)
+                                    estimate_id = estimate_id_match.group(1) if estimate_id_match else None
+                                    
+                                    # Get environment (sandbox/production)
+                                    environment = "sandbox"  # Default to sandbox
+                                    qb_settings = database.get_quickbooks_settings()
+                                    if qb_settings and 'QB_ENVIRONMENT' in qb_settings:
+                                        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+                                    
+                                    # Create a direct link if possible
+                                    if estimate_id and environment:
+                                        base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
+                                        estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
+                                        # Show success with a clickable link
+                                        status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                        status_placeholder.markdown(f"[Click here to view the estimate in QuickBooks]({estimate_url}) (opens in new tab)")
+                                    else:
+                                        status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                 else:
                                     status_placeholder.error(f"Failed to export to QuickBooks: {message}")
                             else:
@@ -2563,7 +2583,26 @@ def main():
                                     
                                     # Update the UI with the result (no page refresh)
                                     if success:
-                                        status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                        # Extract estimate ID and other info from the message for direct linking
+                                        import re
+                                        estimate_id_match = re.search(r'ID: ([^)]+)', message)
+                                        estimate_id = estimate_id_match.group(1) if estimate_id_match else None
+                                        
+                                        # Get environment (sandbox/production)
+                                        environment = "sandbox"  # Default to sandbox
+                                        qb_settings = database.get_quickbooks_settings()
+                                        if qb_settings and 'QB_ENVIRONMENT' in qb_settings:
+                                            environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+                                        
+                                        # Create a direct link if possible
+                                        if estimate_id and environment:
+                                            base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
+                                            estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
+                                            # Show success with a clickable link
+                                            status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                            status_history_placeholder.markdown(f"[Click here to view the estimate in QuickBooks]({estimate_url}) (opens in new tab)")
+                                        else:
+                                            status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                     else:
                                         status_history_placeholder.error(f"Failed to export to QuickBooks: {message}")
                                     
