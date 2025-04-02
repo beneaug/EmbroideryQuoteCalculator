@@ -1176,8 +1176,7 @@ def main():
                     help="Adjust the productivity rate (lower values = slower production)"
                 )
                 
-                # Save current value in session state
-                st.session_state[slider_key] = custom_productivity_rate
+                # No need to manually update session state - Streamlit does this automatically
                 
                 if coloreel_enabled:
                     st.caption(f"Coloreel Efficiency: {int(custom_productivity_rate * 100)}% (default suggestion: {int(float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE) * 100)}%)")
