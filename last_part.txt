@@ -1,0 +1,125 @@
+                    if has_client_id and has_client_secret and has_realm_id and has_access_token:
+                        with st.spinner("Testing connection to QuickBooks API..."):
+                            client, error = get_quickbooks_client()
+                            
+                            if client:
+                                st.success("✅ Successfully connected to QuickBooks API!")
+                                
+                                # Try a simple API call to further verify
+                                try:
+                                    from quickbooks.objects.company import Company
+                                    company_info = Company.all(qb=client)
+                                    st.success(f"✅ Successfully retrieved company information")
+                                except Exception as e:
+                                    st.error(f"Connection established but API call failed: {str(e)}")
+                            else:
+                                st.error(f"Failed to connect to QuickBooks: {error}")
+                    else:
+                        st.error("Cannot test connection: Missing required settings")
+                        
+            # Reset button
+            if st.button("Reset QuickBooks Authentication", help="Clear all QuickBooks tokens"):
+                if database.reset_quickbooks_auth():
+                    st.success("QuickBooks authentication has been reset")
+                    st.rerun()
+                else:
+                    st.error("Failed to reset QuickBooks authentication")
+                            
+                            # Need to import Scopes for the token exchange
+                            from intuitlib.enums import Scopes
+                            
+                            # Exchange code for tokens
+                            st.info(f"Exchanging authorization code for tokens with realm_id: {realm_id}...")
+                            scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
+                            
+                            # Only proceed if we have a realm_id
+                            if realm_id:
+                                intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                            else:
+                                st.error("Cannot proceed without a Realm ID")
+                                return
+                            
+                            # Show token information (partially masked)
+                            st.info(f"Access token received: {intuit_auth_client.access_token[:10]}...")
+                            st.info(f"Refresh token received: {intuit_auth_client.refresh_token[:10]}...")
+                            st.info(f"Token expires in: {intuit_auth_client.expires_in} seconds")
+                            
+                            # Save tokens to database
+                            # First clear any existing token data to avoid conflicts
+                            st.info("Clearing previous authentication data...")
+                            database.reset_quickbooks_auth()
+                            
+                            st.info("Saving new tokens to database...")
+                            
+                            # Save access token with expiration
+                            access_result = database.update_quickbooks_token(
+                                "QB_ACCESS_TOKEN", 
+                                intuit_auth_client.access_token,
+                                time.time() + intuit_auth_client.expires_in
+                            )
+                            st.info(f"Access token saved: {'Success' if access_result else 'Failed'}")
+                            
+                            # Save refresh token
+                            refresh_result = database.update_quickbooks_token(
+                                "QB_REFRESH_TOKEN", 
+                                intuit_auth_client.refresh_token
+                            )
+                            st.info(f"Refresh token saved: {'Success' if refresh_result else 'Failed'}")
+                            
+                            # Check authentication status
+                            auth_status, auth_message = database.get_quickbooks_auth_status()
+                            st.info(f"Final auth status: {auth_status}, Message: {auth_message}")
+                            
+                            st.success("Authorization process completed! Check status above.")
+                            
+                            # Show a button to reload instead of automatic rerun
+                            if st.button("Reload to update status"):
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Authorization failed: {str(e)}")
+            
+            # Add info about required QuickBooks setup
+            st.markdown("""
+            ### QuickBooks Requirements
+            
+            Before using the QuickBooks integration, ensure you have:
+            
+            1. An Intuit Developer account with an app set up
+            2. The "Embroidery Services" item created in your QuickBooks account
+            3. Customer records with matching names to your quotes
+            
+            For sandbox testing, you'll need to create these items in your sandbox company.
+            """)
+            
+        # View Database Quotes
+        with st.expander("View Quote Database"):
+            st.subheader("Recent Quotes")
+            quotes = database.get_recent_quotes(limit=20)
+            
+            if not quotes:
+                st.info("No quotes saved to database yet.")
+            else:
+                # Create a DataFrame for display
+                df = pd.DataFrame(quotes)
+                df['created_at'] = pd.to_datetime(df['created_at'])
+                df['created_at'] = df['created_at'].dt.strftime('%Y-%m-%d %H:%M')
+                df = df.rename(columns={
+                    'job_name': 'Job Name',
+                    'customer_name': 'Customer',
+                    'stitch_count': 'Stitches',
+                    'quantity': 'Qty',
+                    'total_cost': 'Total Cost',
+                    'price_per_piece': 'Price/Piece',
+                    'created_at': 'Date'
+                })
+                df['Total Cost'] = df['Total Cost'].map('${:.2f}'.format)
+                df['Price/Piece'] = df['Price/Piece'].map('${:.2f}'.format)
+                
+                st.dataframe(df, use_container_width=True)
+        
+        # Instead of using flags, just show the reload button
+        if st.button("Reload Application Settings"):
+            st.rerun()
+
+if __name__ == "__main__":
+    main()

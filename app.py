@@ -3365,7 +3365,7 @@ def main():
                 else:
                     st.info("No workers found. Add your first worker using the form above.")
         
-        # QuickBooks Settings
+        # QuickBooks Settings - Simplified & Direct Approach
         with st.expander("QuickBooks Integration Settings"):
             st.subheader("QuickBooks API Configuration")
             
@@ -3390,19 +3390,18 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # Provide a clear explanation about QuickBooks authorization 
+            # A more streamlined explanation for the simplified approach
             st.markdown("""
-            ### 📋 Connection Instructions
+            ### 📋 Simplified Connection Instructions
             
-            Follow these steps to configure QuickBooks integration:
+            We've simplified the QuickBooks connection to be more reliable:
             
-            1. Enter your QuickBooks developer credentials below
-            2. Save your settings using the "Save QuickBooks Settings" button
-            3. Click "Connect to QuickBooks" to authorize the application
-            4. QuickBooks will redirect you back to this application
-            5. Your authorization will be processed automatically
+            1. Go to your [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)
+            2. Get your API keys and enter them below
+            3. Directly enter your access token and refresh token
+            4. Save your settings
             
-            If you are having connection issues, try the "Reset Authorization" button before reconnecting.
+            This direct method bypasses the complex authorization flow that was causing issues.
             """)
             
             # Create columns for the form
@@ -3440,41 +3439,59 @@ def main():
                 )
             
             with col2:
-                # Redirect URI
-                # Auto-detect the current Replit URL
+                # Direct token entry - the new simplified approach
+                # Access Token
+                access_token = st.text_input(
+                    "Access Token",
+                    value=qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', ''),
+                    type="password", 
+                    help="Enter your QuickBooks access token directly (from developer dashboard)"
+                )
+                
+                # Refresh Token
+                refresh_token = st.text_input(
+                    "Refresh Token",
+                    value=qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', ''),
+                    type="password",
+                    help="Enter your QuickBooks refresh token directly (from developer dashboard)"
+                )
+                
+                # Optional: Token expiration
+                token_expiry = st.text_input(
+                    "Token Expiry (optional)",
+                    help="Enter token expiry in seconds from now (leave empty to use default 3600)"
+                )
+                
+                # Auto-detect the current Replit URL for reference only
                 import os
                 replit_domain = os.environ.get("REPLIT_DOMAIN", "")
                 default_redirect = f"https://{replit_domain}" if replit_domain else "http://localhost:5000"
                 
-                redirect_uri = st.text_input(
-                    "Redirect URI", 
-                    value=qb_settings.get('QB_REDIRECT_URI', {}).get('value', default_redirect),
-                    help="URI where QuickBooks will redirect after authorization"
-                )
+                # Show redirect URI just for reference
+                st.info(f"Your application URL: {default_redirect}\n\nUse this in your Intuit Developer Dashboard.")
                 
-                # Display the current access token expiration if available
-                access_token = qb_settings.get('QB_ACCESS_TOKEN', {})
-                if access_token and 'expires_at' in access_token and access_token['expires_at']:
-                    import time
-                    try:
-                        expires_at = float(access_token['expires_at'])
-                        now = time.time()
-                        if expires_at > now:
-                            minutes_left = int((expires_at - now) / 60)
-                            st.info(f"Access token expires in approximately {minutes_left} minutes")
-                        else:
-                            st.warning("Access token has expired")
-                    except:
-                        st.warning("Invalid token expiration format")
+            # Instructions for getting tokens - using a non-expander approach to avoid nesting issues
+            st.markdown("#### 📋 How to get Access and Refresh Tokens")
+            with st.container():
+                st.markdown("""
+                1. **Set up your app in the [Intuit Developer Dashboard](https://developer.intuit.com/app/developer/dashboard)**
+                   - Create an app with the redirect URL shown above
+                   - Select the accounting scope
                 
-                # Manual token reset option
-                st.markdown("### Advanced Options")
-                preserve_tokens = st.checkbox("Preserve existing tokens when connecting", 
-                                          value=True,
-                                          help="When enabled, existing tokens will not be reset before authorizing")
+                2. **Use the OAuth 2.0 Playground**
+                   - Go to the OAuth Playground in your app settings
+                   - Authenticate with your QuickBooks account
+                   - Copy the access token and refresh token
+                   
+                3. **Enter tokens here**
+                   - Paste the tokens in the fields above
+                   - Save your settings
+                   
+                This manual approach bypasses the complex OAuth redirect flow, making the integration more reliable.
+                """)
             
             # Create columns for the buttons
-            button_col1, button_col2, button_col3 = st.columns(3)
+            button_col1, button_col2 = st.columns(2)
             
             # Save settings button
             with button_col1:
@@ -3484,175 +3501,87 @@ def main():
                     database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
                     database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
                     database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-                    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
+                    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", default_redirect)
                     database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
                     
+                    # Calculate token expiration if provided
+                    token_expires_at = None
+                    if token_expiry and token_expiry.strip():
+                        try:
+                            import time
+                            token_expires_at = time.time() + int(token_expiry.strip())
+                        except:
+                            st.warning("Invalid token expiry format. Using default.")
+                    
+                    # Save tokens with expiration if provided
+                    if access_token:
+                        if token_expires_at:
+                            database.update_quickbooks_token("QB_ACCESS_TOKEN", access_token, token_expires_at)
+                        else:
+                            database.update_quickbooks_token("QB_ACCESS_TOKEN", access_token)
+                    
+                    if refresh_token:
+                        database.update_quickbooks_token("QB_REFRESH_TOKEN", refresh_token)
+                    
                     st.success("QuickBooks settings saved successfully!")
-                    # Force Streamlit to rerun and display authorization button
+                    st.info("The page will refresh in 2 seconds to verify connection...")
+                    
+                    # Add a slight delay before refreshing to show the success message
+                    import time
+                    time.sleep(2)
+                    
+                    # Force Streamlit to rerun and update status
                     st.rerun()
             
-            # Connect to QuickBooks button
+            # Test connection button
             with button_col2:
-                connect_button = st.button("Connect to QuickBooks", 
-                                       type="primary",
-                                       help="Start the QuickBooks authorization process",
-                                       disabled=not (client_id and redirect_uri))
-                if connect_button:
-                    # This only resets tokens if preserve_tokens is False
-                    if not preserve_tokens:
-                        database.reset_quickbooks_auth()
-                        st.info("Previous authorization tokens have been cleared")
+                test_button = st.button("Test Connection", 
+                                     help="Test the QuickBooks connection with current settings")
+                if test_button:
+                    # Simple verification of saved values
+                    has_client_id = bool(qb_settings.get('QB_CLIENT_ID', {}).get('value', ''))
+                    has_client_secret = bool(qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''))
+                    has_realm_id = bool(qb_settings.get('QB_REALM_ID', {}).get('value', ''))
+                    has_access_token = bool(qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', ''))
+                    has_refresh_token = bool(qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', ''))
                     
-                    # Generate auth URL and redirect
-                    auth_url = get_quickbooks_auth_url()
-                    if auth_url:
-                        st.info("Redirecting to QuickBooks authorization page...")
-                        st.markdown(f"""
-                        <script>
-                            window.top.location.href = '{auth_url}';
-                        </script>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.error("Failed to generate authorization URL")
-            
-            # Reset authentication button
-            with button_col3:
-                reset_button = st.button("Reset Authorization", help="Reset the access and refresh tokens to fix authentication issues")
-                if reset_button:
-                    if database.reset_quickbooks_auth():
-                        st.success("QuickBooks authentication has been reset. Use the Connect button to reauthorize.")
-                        st.rerun()
-                    else:
-                        st.error("Failed to reset QuickBooks authentication.")
-            
-            # Always show authorization section if Client ID and Redirect URI are set
-            if client_id and redirect_uri:
-                auth_url = get_quickbooks_auth_url()
-                if auth_url:
-                    st.markdown("### Authorization")
-                    st.info("Click the button below to authorize this application with QuickBooks.")
+                    # Display info about current settings
+                    st.info("Checking connection with current settings...")
                     
-                    # Using HTML/CSS for a nicer button design
-                    st.markdown(f"""
-                    <a href="{auth_url}" target="_blank" style="
-                        display: inline-block;
-                        background: linear-gradient(90deg, #f3770c 0%, #ff9d45 100%);
-                        color: white;
-                        padding: 8px 16px;
-                        border-radius: 8px;
-                        text-decoration: none;
-                        font-weight: bold;
-                        margin-top: 10px;
-                    ">
-                        Authorize with QuickBooks
-                    </a>
-                    """, unsafe_allow_html=True)
+                    # Show warning about missing values
+                    if not (has_client_id and has_client_secret and has_realm_id):
+                        st.warning("Missing basic settings: Client ID, Client Secret, or Realm ID is empty")
                     
-                    st.markdown("""
-                    **After authorization:**
-                    1. QuickBooks will redirect back to this application with the authorization code
-                    2. The authorization will be processed automatically
-                    3. You'll see a confirmation message when complete
+                    if not (has_access_token and has_refresh_token):
+                        st.warning("Missing tokens: Access Token or Refresh Token is empty")
                     
-                    If automatic redirect doesn't work, you can manually paste the redirect URL below.
-                    """)
-                    
-                    auth_code_url = st.text_input("Optional: Paste the redirect URL manually if needed:")
-                    if auth_code_url and "code=" in auth_code_url:
-                        # Extract the authorization code
-                        try:
-                            # Show detailed debug information
-                            st.info("Processing authorization code...")
+                    # Test QuickBooks client
+                    if has_client_id and has_client_secret and has_realm_id and has_access_token:
+                        with st.spinner("Testing connection to QuickBooks API..."):
+                            client, error = get_quickbooks_client()
                             
-                            auth_code = auth_code_url.split("code=")[1].split("&")[0]
-                            st.info(f"Authorization code extracted: {auth_code[:5]}...")
-                            
-                            # Use the Intuit OAuth library to get tokens
-                            from intuitlib.client import AuthClient as IntuitAuthClient
-                            
-                            # Initialize auth client
-                            st.info("Initializing OAuth client...")
-                            intuit_auth_client = IntuitAuthClient(
-                                client_id=client_id,
-                                client_secret=client_secret,
-                                environment=environment,
-                                redirect_uri=redirect_uri
-                            )
-                            
-                            # Initialize realm_id from database if not in URL
-                            realm_id = None
-                            qb_settings = database.get_quickbooks_settings()
-                            
-                            # Extract the realm_id from URL if available, otherwise use from database
-                            if "realmId=" in auth_code_url:
-                                realm_id = auth_code_url.split("realmId=")[1].split("&")[0]
-                                st.info(f"Realm ID extracted from URL: {realm_id}")
+                            if client:
+                                st.success("✅ Successfully connected to QuickBooks API!")
                                 
-                                # Update the realm ID in the database
-                                db_result = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-                                st.info(f"Realm ID saved to database: {'Success' if db_result else 'Failed'}")
+                                # Try a simple API call to further verify
+                                try:
+                                    from quickbooks.objects.company import Company
+                                    company_info = Company.all(qb=client)
+                                    st.success(f"✅ Successfully retrieved company information")
+                                except Exception as e:
+                                    st.error(f"Connection established but API call failed: {str(e)}")
                             else:
-                                # Try to get realm_id from database settings
-                                realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
-                                if realm_id:
-                                    st.info(f"Using Realm ID from database: {realm_id}")
-                                else:
-                                    st.error("No Realm ID found in URL or database")
-                                    st.info("Please make sure to authorize with a company selected in QuickBooks")
-                                    return
-                            
-                            # Need to import Scopes for the token exchange
-                            from intuitlib.enums import Scopes
-                            
-                            # Exchange code for tokens
-                            st.info(f"Exchanging authorization code for tokens with realm_id: {realm_id}...")
-                            scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
-                            
-                            # Only proceed if we have a realm_id
-                            if realm_id:
-                                intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
-                            else:
-                                st.error("Cannot proceed without a Realm ID")
-                                return
-                            
-                            # Show token information (partially masked)
-                            st.info(f"Access token received: {intuit_auth_client.access_token[:10]}...")
-                            st.info(f"Refresh token received: {intuit_auth_client.refresh_token[:10]}...")
-                            st.info(f"Token expires in: {intuit_auth_client.expires_in} seconds")
-                            
-                            # Save tokens to database
-                            # First clear any existing token data to avoid conflicts
-                            st.info("Clearing previous authentication data...")
-                            database.reset_quickbooks_auth()
-                            
-                            st.info("Saving new tokens to database...")
-                            
-                            # Save access token with expiration
-                            access_result = database.update_quickbooks_token(
-                                "QB_ACCESS_TOKEN", 
-                                intuit_auth_client.access_token,
-                                time.time() + intuit_auth_client.expires_in
-                            )
-                            st.info(f"Access token saved: {'Success' if access_result else 'Failed'}")
-                            
-                            # Save refresh token
-                            refresh_result = database.update_quickbooks_token(
-                                "QB_REFRESH_TOKEN", 
-                                intuit_auth_client.refresh_token
-                            )
-                            st.info(f"Refresh token saved: {'Success' if refresh_result else 'Failed'}")
-                            
-                            # Check authentication status
-                            auth_status, auth_message = database.get_quickbooks_auth_status()
-                            st.info(f"Final auth status: {auth_status}, Message: {auth_message}")
-                            
-                            st.success("Authorization process completed! Check status above.")
-                            
-                            # Show a button to reload instead of automatic rerun
-                            if st.button("Reload to update status"):
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Authorization failed: {str(e)}")
+                                st.error(f"Failed to connect to QuickBooks: {error}")
+                    else:
+                        st.error("Cannot test connection: Missing required settings")
+                        
+            # Reset button
+            if st.button("Reset QuickBooks Authentication", help="Clear all QuickBooks tokens"):
+                if database.reset_quickbooks_auth():
+                    st.success("QuickBooks authentication has been reset")
+                    st.rerun()
+                else:
+                    st.error("Failed to reset QuickBooks authentication")
             
             # Add info about required QuickBooks setup
             st.markdown("""
