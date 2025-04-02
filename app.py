@@ -1137,8 +1137,10 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                     item.Name = "Embroidery Services"
                     item.Description = "Embroidery services including digitizing, setup, and production"
                     item.Type = "Service"
-                    item.IncomeAccountRef = {"value": income_account.Id, "name": income_account.Name}
+                    item.IncomeAccountRef = income_account.to_ref()
                     item.Taxable = False
+                    item.UnitPrice = 0
+                    item.TrackQtyOnHand = False
                     
                     # Save the item
                     print("Saving new service item...")
@@ -1153,10 +1155,13 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                 print(f"Step 7: Creating line item...")
                 line = SalesItemLine()
                 
-                # Format the description properly
+                # Format the description properly with more details
                 quantity = job_inputs.get('quantity', 1)
                 stitch_count = design_info.get('stitch_count', 0)
-                line.Description = f"Embroidery services - {quantity} pieces, {stitch_count:,} stitches"
+                garment_type = job_inputs.get('garment_type', 'Garment')
+                placement = job_inputs.get('placement', 'Standard placement')
+                
+                line.Description = f"Embroidery services - {quantity} pieces, {stitch_count:,} stitches. {garment_type}, {placement}"
                 
                 # Set amounts as strings to avoid precision issues
                 total_cost = float(cost_results['total_job_cost'])
@@ -2392,8 +2397,15 @@ def main():
                         else:
                             export_container.error(f"Failed to export to QuickBooks: {message}")
                     
-                    # Create the Export button
-                    export_clicked = export_container.button(
+                    # Create the Export button in a more isolated way to prevent state changes
+                    # We'll keep this in its own column to prevent UI shifts
+                    export_col1, export_col2 = export_container.columns([2, 1])
+                    
+                    # Status messages will go in column 1
+                    status_placeholder = export_col1.empty()
+                    
+                    # The button will go in column 2 
+                    export_clicked = export_col2.button(
                         "Export to QuickBooks", 
                         help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
                         key="export_to_qb_button",
@@ -2404,8 +2416,7 @@ def main():
                     
                     # Process the export ONLY if button is clicked
                     if export_clicked:
-                        # Create a placeholder for dynamic status updates
-                        status_placeholder = export_container.empty()
+                        # Show status in the placeholder
                         status_placeholder.info("Starting QuickBooks export...")
                         
                         try:
@@ -2552,16 +2563,57 @@ def main():
                             if history_status_key not in st.session_state:
                                 st.session_state[history_status_key] = None
                             
-                            # Display previous export result
+                            # Use columns to isolate the export button and status
+                            export_hist_col1, export_hist_col2 = export_history_container.columns([2, 1])
+                            
+                            # Status messages will go in column 1
+                            status_history_placeholder = export_hist_col1.empty()
+                            
+                            # Display previous export result in the status placeholder
                             if st.session_state[history_status_key]:
                                 success, message = st.session_state[history_status_key]
                                 if success:
-                                    export_history_container.success(f"Successfully exported to QuickBooks: {message}")
+                                    # Check if the message contains an estimate ID for linking
+                                    import re
+                                    estimate_id_match = re.search(r'ID: ([^)]+)', message)
+                                    estimate_id = estimate_id_match.group(1) if estimate_id_match else None
+                                    
+                                    # Get environment (sandbox/production)
+                                    environment = "sandbox"  # Default to sandbox
+                                    qb_settings = database.get_quickbooks_settings()
+                                    if qb_settings and 'QB_ENVIRONMENT' in qb_settings:
+                                        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+                                    
+                                    # Show success message
+                                    status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
+                                    
+                                    # If we have an estimate ID, create a styled direct link
+                                    if estimate_id and environment:
+                                        base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
+                                        estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
+                                        
+                                        # Add a styled button link
+                                        status_history_placeholder.markdown(f"""
+                                        <a href="{estimate_url}" target="_blank" style="
+                                            display: inline-block;
+                                            background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
+                                            color: white;
+                                            padding: 8px 16px;
+                                            border-radius: 8px;
+                                            text-decoration: none;
+                                            font-weight: bold;
+                                            margin-top: 10px;
+                                            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+                                        ">
+                                            <span style="vertical-align: middle;">View Estimate in QuickBooks</span>
+                                            <span style="vertical-align: middle; margin-left: 5px;">↗</span>
+                                        </a>
+                                        """, unsafe_allow_html=True)
                                 else:
-                                    export_history_container.error(f"Failed to export to QuickBooks: {message}")
+                                    status_history_placeholder.error(f"Failed to export to QuickBooks: {message}")
                             
-                            # Create the export button
-                            export_history_clicked = export_history_container.button(
+                            # Create the export button in column 2
+                            export_history_clicked = export_hist_col2.button(
                                 "Export to QuickBooks", 
                                 help="Create an estimate in QuickBooks based on this quote. After export, you can find it in Sales > Estimates in your QuickBooks account.",
                                 key=f"export_to_qb_button_{i}",
@@ -2571,8 +2623,7 @@ def main():
                             
                             # Handle export when clicked - NO RERUN needed
                             if export_history_clicked:
-                                # Create a placeholder for status updates
-                                status_history_placeholder = export_history_container.empty()
+                                # Show status in the placeholder
                                 status_history_placeholder.info("Starting QuickBooks export...")
                                 
                                 try:
