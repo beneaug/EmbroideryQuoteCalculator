@@ -75,8 +75,9 @@ def quickbooks_auth():
     clean_old_states()
     
     # Build the OAuth URL with standard parameters
-    # Use the provided redirect_uri that's registered in the Intuit Developer Dashboard
-    callback_uri = redirect_uri + "/callback"
+    # Use EXACTLY the redirect_uri that's registered in the Intuit Developer Dashboard
+    # Do NOT modify the redirect_uri by appending /callback - this must match exactly what's registered
+    callback_uri = redirect_uri
     
     # Add a direct backend callback option that doesn't depend on the app frontend
     if not callback_uri.startswith("http"):
@@ -127,8 +128,9 @@ def quickbooks_callback():
     environment = params['environment']
     
     # Exchange the code for tokens
-    # Create the same callback_uri as used in the authorization request
-    callback_uri = redirect_uri + "/callback"
+    # Use EXACTLY the same redirect_uri as used in the authorization request
+    # This MUST match exactly what's registered in the Intuit Developer Dashboard
+    callback_uri = redirect_uri
     
     # Add a direct backend callback option that doesn't depend on the app frontend
     if not callback_uri.startswith("http"):

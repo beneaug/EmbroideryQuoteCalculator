@@ -1342,11 +1342,11 @@ def get_quickbooks_auth_url():
     client_secret_masked = "****" if client_secret else None
     
     # Create a redirect URI based on the Replit domain
-    # This ensures we can capture the OAuth redirect properly
+    # IMPORTANT: This must match EXACTLY what's registered in Intuit Developer Dashboard
     if replit_domain:
-        default_redirect_uri = f"https://{replit_domain}"
+        default_redirect_uri = f"https://{replit_domain}/callback" 
     else:
-        default_redirect_uri = "http://localhost:5000"
+        default_redirect_uri = "http://localhost:5000/callback"
     
     # Always update the redirect URI to match the current Replit domain
     # This prevents issues when the Replit URL changes between sessions
