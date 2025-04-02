@@ -386,12 +386,33 @@ def generate_detailed_quote_pdf(design_info, job_inputs, cost_results):
         parent=styles['Heading2'],
         spaceAfter=6,
         spaceBefore=12,
-        textColor=colors.darkblue
+        textColor=colors.HexColor('#3a1d0d')
     )
     
-    # Title
-    elements.append(Paragraph("Embroidery Job Quote (Internal)", title_style))
-    elements.append(Spacer(1, 0.2 * inch))
+    # Header with logo and quote number
+    try:
+        logo_path = "attached_assets/Asset 1@4x.png"
+        logo_img = Image(logo_path, width=2*inch, height=0.75*inch)
+        
+        # Create a table for the header with logo on left, quote info on right
+        quote_number = f"INTERNAL QUOTE {str(len(st.session_state.history) + 1).zfill(4)}"
+        date_str = datetime.datetime.now().strftime("%B %d, %Y")
+        
+        header_data = [[logo_img, quote_number], ["", date_str]]
+        header_table = Table(header_data, colWidths=[4*inch, 3*inch])
+        header_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 1), 'RIGHT'),
+            ('VALIGN', (0, 0), (1, 1), 'TOP'),
+            ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (1, 0), (1, 0), 14),
+        ]))
+        elements.append(header_table)
+    except Exception as e:
+        # Fallback if logo isn't available
+        elements.append(Paragraph("Embroidery Job Quote (Internal)", title_style))
+    
+    elements.append(Spacer(1, 0.4 * inch))
     
     # Job information
     elements.append(Paragraph("Job Information", section_style))
@@ -520,20 +541,42 @@ def generate_customer_quote_pdf(design_info, job_inputs, cost_results):
         parent=styles['Heading2'],
         spaceAfter=6,
         spaceBefore=12,
-        textColor=colors.darkblue
+        textColor=colors.HexColor('#3a1d0d')
     )
     
-    # Title
-    elements.append(Paragraph("Embroidery Quote", title_style))
-    elements.append(Spacer(1, 0.2 * inch))
+    # Header with logo and quote number
+    try:
+        logo_path = "attached_assets/Asset 1@4x.png"
+        logo_img = Image(logo_path, width=2*inch, height=0.75*inch)
+        
+        # Create a table for the header with logo on left, quote info on right
+        quote_number = f"QUOTE {str(len(st.session_state.history) + 1).zfill(4)}"
+        date_str = datetime.datetime.now().strftime("%B %d, %Y")
+        
+        header_data = [[logo_img, quote_number], ["", date_str]]
+        header_table = Table(header_data, colWidths=[4*inch, 3*inch])
+        header_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 1), 'RIGHT'),
+            ('VALIGN', (0, 0), (1, 1), 'TOP'),
+            ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (1, 0), (1, 0), 14),
+        ]))
+        elements.append(header_table)
+    except Exception as e:
+        # Fallback if logo isn't available
+        elements.append(Paragraph("Embroidery Quote", title_style))
     
-    # Company info (placeholder - customize as needed)
+    elements.append(Spacer(1, 0.4 * inch))
+    
+    # Company info (styled to match 12ozProphet example)
     company_info = """
-    Your Embroidery Company<br/>
+    <b>Your Embroidery Company</b><br/>
     123 Stitch Lane<br/>
-    Embroidery City, EC 12345<br/>
+    Embroidery City, EC 12345<br/><br/>
     Phone: (555) 123-4567<br/>
-    Email: info@yourembroidery.com
+    Email: info@yourembroidery.com<br/>
+    Web: www.yourembroidery.com
     """
     elements.append(Paragraph(company_info, normal_style))
     elements.append(Spacer(1, 0.3 * inch))
@@ -798,7 +841,7 @@ def main():
     
     with tab1:
         # Step 1: File Upload or Manual Entry Section
-        st.header("Step 1: Choose Design Source")
+        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #3a1d0d;">Step 1: Choose Design Source</h2>', unsafe_allow_html=True)
         
         # Simple toggle for entry method
         entry_method = st.radio(
@@ -955,7 +998,7 @@ def main():
                         """, unsafe_allow_html=True)
         
         # Step 2: Job Information & Materials
-        st.header("Step 2: Job Information & Materials")
+        st.markdown('<h2 style="font-family: \'Helvetica Neue Bold\', \'Helvetica Neue\', Helvetica, Arial, sans-serif; color: #3a1d0d;">Step 2: Job Information & Materials</h2>', unsafe_allow_html=True)
         
         # Job Info Card with enhanced styling
         st.markdown("""
@@ -1022,44 +1065,41 @@ def main():
             active_heads = st.slider("Machine Heads", 1, max_heads, default_heads, 
                                   help="Number of embroidery heads that will run simultaneously")
             
-            # Complex production checkbox
-            complex_production = st.checkbox("Complex Production", value=False,
+            # Coloreel ITCU checkbox
+            coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
+                                       help="Enable if using Coloreel instant thread coloring technology")
+            
+            # Complex production checkbox - auto-check if Coloreel is enabled
+            complex_production = st.checkbox("Complex Production", 
+                                         value=coloreel_enabled,  # Auto-check if Coloreel is enabled
                                          help="Enable for complex designs that require slower stitching and additional attention")
             
             # Custom productivity rate slider (only shown when complex production is enabled)
             custom_productivity_rate = None
             if complex_production:
-                # Calculate default based on complex production
-                default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
-                min_rate = 0.2  # 20% efficiency
-                max_rate = 1.0  # 100% efficiency
-                step = 0.05
-                
-                custom_productivity_rate = st.slider(
-                    "Productivity Rate", 
-                    min_value=min_rate,
-                    max_value=max_rate,
-                    value=default_rate,
-                    step=step,
-                    format="%.2f",
-                    help="Adjust the productivity rate (lower values = slower production)"
-                )
-                
-                st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
-            
-            # Coloreel ITCU checkbox
-            coloreel_enabled = st.checkbox("Use Coloreel ITCU", value=False,
-                                       help="Enable if using Coloreel instant thread coloring technology")
-            
-            # If Coloreel is enabled, automatically enable complex production and use Coloreel rate
-            if coloreel_enabled:
-                if not complex_production:
-                    complex_production = True
-                    st.info("Complex Production automatically enabled with Coloreel ITCU")
-                
-                # Override custom productivity rate with Coloreel rate
-                custom_productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
-                st.caption(f"Coloreel Productivity Rate: {custom_productivity_rate:.2f} ({int(custom_productivity_rate * 100)}% efficiency)")
+                # If Coloreel is enabled, display the Coloreel rate info
+                if coloreel_enabled:
+                    # Override custom productivity rate with Coloreel rate
+                    custom_productivity_rate = float(DEFAULT_COLOREEL_PRODUCTIVITY_RATE)
+                    st.caption(f"Coloreel Productivity Rate: {custom_productivity_rate:.2f} ({int(custom_productivity_rate * 100)}% efficiency)")
+                else:
+                    # Calculate default based on complex production
+                    default_rate = float(DEFAULT_COMPLEX_PRODUCTIVITY_RATE)
+                    min_rate = 0.2  # 20% efficiency
+                    max_rate = 1.0  # 100% efficiency
+                    step = 0.05
+                    
+                    custom_productivity_rate = st.slider(
+                        "Productivity Rate", 
+                        min_value=min_rate,
+                        max_value=max_rate,
+                        value=default_rate,
+                        step=step,
+                        format="%.2f",
+                        help="Adjust the productivity rate (lower values = slower production)"
+                    )
+                    
+                    st.caption(f"Production Efficiency: {int(custom_productivity_rate * 100)}%")
             
             # Apply head limitations for Coloreel
             coloreel_max_heads = int(DEFAULT_COLOREEL_MAX_HEADS)
@@ -1410,20 +1450,22 @@ def main():
             <style>
             .download-button {
                 display: block;
-                background: linear-gradient(90deg, #3a1d0d 0%, #8b6c55 100%);
+                background: linear-gradient(90deg, #f3770c 0%, #f5993c 100%);
                 color: white;
                 font-weight: 600;
                 text-align: center;
                 padding: 12px 20px;
                 margin: 10px 5px;
                 border-radius: 15px;
-                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+                box-shadow: 0 4px 10px rgba(243, 119, 12, 0.3);
                 text-decoration: none;
                 transition: all 0.3s ease;
+                font-family: 'Helvetica Neue Bold', 'Helvetica Neue', Helvetica, Arial, sans-serif;
             }
             .download-button:hover {
-                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+                box-shadow: 0 6px 15px rgba(243, 119, 12, 0.4);
                 transform: translateY(-2px);
+                background: linear-gradient(90deg, #f5993c 0%, #f3770c 100%);
             }
             .download-button svg {
                 vertical-align: middle;
