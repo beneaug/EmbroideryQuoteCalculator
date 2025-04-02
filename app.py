@@ -2664,22 +2664,41 @@ def main():
                                 redirect_uri=redirect_uri
                             )
                             
-                            # Extract the realm_id from URL if available
+                            # Initialize realm_id from database if not in URL
+                            realm_id = None
+                            qb_settings = database.get_quickbooks_settings()
+                            
+                            # Extract the realm_id from URL if available, otherwise use from database
                             if "realmId=" in auth_code_url:
                                 realm_id = auth_code_url.split("realmId=")[1].split("&")[0]
-                                st.info(f"Realm ID extracted: {realm_id}")
+                                st.info(f"Realm ID extracted from URL: {realm_id}")
                                 
                                 # Update the realm ID in the database
                                 db_result = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
                                 st.info(f"Realm ID saved to database: {'Success' if db_result else 'Failed'}")
-                                
+                            else:
+                                # Try to get realm_id from database settings
+                                realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
+                                if realm_id:
+                                    st.info(f"Using Realm ID from database: {realm_id}")
+                                else:
+                                    st.error("No Realm ID found in URL or database")
+                                    st.info("Please make sure to authorize with a company selected in QuickBooks")
+                                    return
+                            
                             # Need to import Scopes for the token exchange
                             from intuitlib.enums import Scopes
                             
                             # Exchange code for tokens
-                            st.info("Exchanging authorization code for tokens...")
+                            st.info(f"Exchanging authorization code for tokens with realm_id: {realm_id}...")
                             scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
-                            intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                            
+                            # Only proceed if we have a realm_id
+                            if realm_id:
+                                intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                            else:
+                                st.error("Cannot proceed without a Realm ID")
+                                return
                             
                             # Show token information (partially masked)
                             st.info(f"Access token received: {intuit_auth_client.access_token[:10]}...")
