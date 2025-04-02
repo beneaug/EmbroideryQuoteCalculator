@@ -435,6 +435,27 @@ def update_quickbooks_token(token_type, token_value, token_expires_at=None):
         st.error(error_msg)
         return False
 
+def reset_quickbooks_auth():
+    """Reset QuickBooks authentication tokens"""
+    try:
+        print("Resetting QuickBooks authentication tokens...")
+        with get_connection() as conn:
+            # Reset the access token
+            query = """
+            UPDATE quickbooks_settings 
+            SET value = '', token_expires_at = NULL, updated_at = CURRENT_TIMESTAMP 
+            WHERE name = 'QB_ACCESS_TOKEN' OR name = 'QB_REFRESH_TOKEN'
+            """
+            conn.execute(text(query))
+            conn.commit()
+            print("QuickBooks tokens have been reset")
+            return True
+    except SQLAlchemyError as e:
+        error_msg = f"Database error resetting QuickBooks auth: {str(e)}"
+        print(error_msg)
+        st.error(error_msg)
+        return False
+
 def get_quickbooks_auth_status():
     """Check if QuickBooks authorization is valid and not expired with enhanced debugging"""
     try:
@@ -490,6 +511,11 @@ def get_quickbooks_auth_status():
             # Check if access token is expired
             if access_row[1] and access_row[1] < time.time():
                 seconds_expired = time.time() - access_row[1]
+                # Even if token is expired, still consider authenticated since we can refresh
+                # as long as we have the refresh token
+                print(f"Token expired {seconds_expired:.0f} seconds ago, but we have refresh token")
+                if has_refresh_token:
+                    return True, "Token expired but can be refreshed"
                 return False, f"Token expired {seconds_expired:.0f} seconds ago"
                 
             return True, "Authenticated and token valid"

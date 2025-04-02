@@ -1188,8 +1188,10 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                 
                 # Return success message with specific instructions
                 # Format the message to make it easy to extract the estimate ID for direct linking
+                # Add more detail for better user experience
                 return True, (
                     f"Estimate #{estimate_number} (ID: {estimate_id}) created successfully! "
+                    f"Customer: {customer.DisplayName}, Amount: ${total_cost:.2f}. "
                     f"You can view it in QuickBooks {environment} under Sales > Estimates."
                 )
                 
@@ -2447,7 +2449,24 @@ def main():
                                         estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
                                         # Show success with a clickable link
                                         status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
-                                        status_placeholder.markdown(f"[Click here to view the estimate in QuickBooks]({estimate_url}) (opens in new tab)")
+                                        
+                                        # Add a more attractive button-style link
+                                        status_placeholder.markdown(f"""
+                                        <a href="{estimate_url}" target="_blank" style="
+                                            display: inline-block;
+                                            background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
+                                            color: white;
+                                            padding: 8px 16px;
+                                            border-radius: 8px;
+                                            text-decoration: none;
+                                            font-weight: bold;
+                                            margin-top: 10px;
+                                            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+                                        ">
+                                            <span style="vertical-align: middle;">View Estimate in QuickBooks</span>
+                                            <span style="vertical-align: middle; margin-left: 5px;">↗</span>
+                                        </a>
+                                        """, unsafe_allow_html=True)
                                     else:
                                         status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                 else:
@@ -2598,9 +2617,26 @@ def main():
                                         if estimate_id and environment:
                                             base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
                                             estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
-                                            # Show success with a clickable link
+                                            # Show success with a styled clickable link
                                             status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
-                                            status_history_placeholder.markdown(f"[Click here to view the estimate in QuickBooks]({estimate_url}) (opens in new tab)")
+                                            
+                                            # Add a more attractive button-style link (matching the main export button style)
+                                            status_history_placeholder.markdown(f"""
+                                            <a href="{estimate_url}" target="_blank" style="
+                                                display: inline-block;
+                                                background: linear-gradient(90deg, #00A09D 0%, #00BAAC 100%);
+                                                color: white;
+                                                padding: 8px 16px;
+                                                border-radius: 8px;
+                                                text-decoration: none;
+                                                font-weight: bold;
+                                                margin-top: 10px;
+                                                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+                                            ">
+                                                <span style="vertical-align: middle;">View Estimate in QuickBooks</span>
+                                                <span style="vertical-align: middle; margin-left: 5px;">↗</span>
+                                            </a>
+                                            """, unsafe_allow_html=True)
                                         else:
                                             status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                     else:
@@ -3114,20 +3150,34 @@ def main():
                     help="Long-lived token for API authentication (obtained after authorization)"
                 )
             
+            # Create columns for the buttons
+            button_col1, button_col2 = st.columns(2)
+            
             # Save settings button
-            save_button = st.button("Save QuickBooks Settings")
-            if save_button:
-                # Update settings in database
-                database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
-                database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
-                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-                database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
-                database.update_setting("quickbooks_settings", "QB_REFRESH_TOKEN", refresh_token)
-                database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
-                
-                st.success("QuickBooks settings saved successfully!")
-                # Force Streamlit to rerun and display authorization button
-                st.rerun()
+            with button_col1:
+                save_button = st.button("Save QuickBooks Settings", type="primary")
+                if save_button:
+                    # Update settings in database
+                    database.update_setting("quickbooks_settings", "QB_CLIENT_ID", client_id)
+                    database.update_setting("quickbooks_settings", "QB_CLIENT_SECRET", client_secret)
+                    database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                    database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
+                    database.update_setting("quickbooks_settings", "QB_REFRESH_TOKEN", refresh_token)
+                    database.update_setting("quickbooks_settings", "QB_ENVIRONMENT", environment)
+                    
+                    st.success("QuickBooks settings saved successfully!")
+                    # Force Streamlit to rerun and display authorization button
+                    st.rerun()
+            
+            # Reset authentication button
+            with button_col2:
+                reset_button = st.button("Reset QuickBooks Authentication", help="Reset the access and refresh tokens to fix authentication issues")
+                if reset_button:
+                    if database.reset_quickbooks_auth():
+                        st.success("QuickBooks authentication has been reset. Please re-authorize with QuickBooks.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to reset QuickBooks authentication.")
             
             # Always show authorization section if Client ID and Redirect URI are set
             if client_id and redirect_uri:
@@ -3225,7 +3275,11 @@ def main():
                             st.info(f"Token expires in: {intuit_auth_client.expires_in} seconds")
                             
                             # Save tokens to database
-                            st.info("Saving tokens to database...")
+                            # First clear any existing token data to avoid conflicts
+                            st.info("Clearing previous authentication data...")
+                            database.reset_quickbooks_auth()
+                            
+                            st.info("Saving new tokens to database...")
                             
                             # Save access token with expiration
                             access_result = database.update_quickbooks_token(
