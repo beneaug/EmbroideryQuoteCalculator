@@ -1005,7 +1005,11 @@ def get_quickbooks_client():
         return None, f"Error initializing QuickBooks client: {str(e)}\n{error_details}"
 
 def export_to_quickbooks(design_info, job_inputs, cost_results):
-    """Export quote as an estimate to QuickBooks with enhanced error handling and state preservation"""
+    """Export quote as an estimate to QuickBooks with enhanced error handling and state preservation
+    
+    Returns:
+        tuple: (success, message, estimate_id, estimate_url) with estimate_id and estimate_url set when successful
+    """
     # Make defensive copies of all input data to avoid state issues
     import copy
     design_info = copy.deepcopy(design_info) if design_info else {}
@@ -1014,7 +1018,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
     
     # Check QuickBooks availability
     if not QUICKBOOKS_AVAILABLE:
-        return False, "QuickBooks integration is not available. Please install the required libraries."
+        return False, "QuickBooks integration is not available. Please install the required libraries.", None, None
     
     # Debug info to aid in troubleshooting
     print(f"\n\n===== QUICKBOOKS EXPORT STARTED =====")
@@ -1027,7 +1031,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
     client, error = get_quickbooks_client()
     if not client:
         print(f"ERROR: Could not get QuickBooks client: {error}")
-        return False, error
+        return False, error, None, None
     print(f"QuickBooks client obtained successfully")
     
     try:
@@ -1058,7 +1062,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         auth_status, auth_message = database.get_quickbooks_auth_status()
         if not auth_status:
             print(f"ERROR: QuickBooks authorization invalid: {auth_message}")
-            return False, f"QuickBooks authorization invalid: {auth_message}. Please re-authorize in Admin settings."
+            return False, f"QuickBooks authorization invalid: {auth_message}. Please re-authorize in Admin settings.", None, None
         else:
             print(f"QuickBooks authorization valid")
         
@@ -1119,7 +1123,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                         print(f"Created generic customer with ID: {customer.Id}")
                     except Exception as simple_ce:
                         print(f"Simple customer creation also failed: {str(simple_ce)}")
-                        return False, f"Could not create a customer in QuickBooks. Error: {str(simple_ce)}"
+                        return False, f"Could not create a customer in QuickBooks. Error: {str(simple_ce)}", None, None
             else:
                 # Use existing customer
                 customer = customers[0]
@@ -1188,7 +1192,7 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                     
                     if not income_accounts:
                         print("No income accounts found. Cannot create item.")
-                        return False, "No income accounts found in QuickBooks. Please create an income account first."
+                        return False, "No income accounts found in QuickBooks. Please create an income account first.", None, None
                     
                     # Use the first available income account
                     income_account = income_accounts[0]
@@ -1263,33 +1267,36 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
                 estimate_number = estimate.DocNumber if hasattr(estimate, 'DocNumber') else "Unknown"
                 print(f"Estimate saved with ID: {estimate_id}, Number: {estimate_number}")
                 
-                # Return success message with specific instructions
-                # Format the message to make it easy to extract the estimate ID for direct linking
-                # Add more detail for better user experience
+                # Return success message with estimate ID and URL for direct linking
+                # Construct the URL to the estimate in QuickBooks
+                base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
+                estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
+                
+                # Return tuple with success flag, message, estimate ID, and direct URL
                 return True, (
                     f"Estimate #{estimate_number} (ID: {estimate_id}) created successfully! "
                     f"Customer: {customer.DisplayName}, Amount: ${total_cost:.2f}. "
                     f"You can view it in QuickBooks {environment} under Sales > Estimates."
-                )
+                ), estimate_id, estimate_url
                 
             except Exception as ie:
                 print(f"Error handling items: {str(ie)}")
                 import traceback
                 print(traceback.format_exc())
-                return False, f"Error with service item: {str(ie)}"
+                return False, f"Error with service item: {str(ie)}", None, None
                 
         except Exception as ce:
             print(f"Error handling customer: {str(ce)}")
             import traceback
             print(traceback.format_exc())
-            return False, f"Error with customer: {str(ce)}"
+            return False, f"Error with customer: {str(ce)}", None, None
         
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
         print(f"QuickBooks Export Error: {str(e)}")
         print(f"Error details: {error_details}")
-        return False, f"Error exporting to QuickBooks: {str(e)}"
+        return False, f"Error exporting to QuickBooks: {str(e)}", None, None
 
 def get_quickbooks_auth_url():
     """Generate QuickBooks authorization URL with improved debugging and reliability"""
@@ -1487,17 +1494,70 @@ def main():
                     redirect_uri=redirect_uri
                 )
                 
-                # Exchange code for tokens with additional error handling
+                # Import these inside the try block to handle any import errors
                 try:
+                    # Import needed libraries
+                    from intuitlib.exceptions import AuthClientError
+                    
                     st.info("Exchanging authorization code for tokens...")
-                    scopes = [Scopes.ACCOUNTING, Scopes.PAYMENT]
-                    intuit_auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+                    
+                    # First, clear any existing tokens to ensure we're starting fresh
+                    # This avoids potential conflicts with previous authentication attempts
+                    database.reset_quickbooks_auth()
+                    st.info("Cleared previous token data for clean authentication")
+                    
+                    # Get the bearer token without specifying realm_id (it will be in the auth_code)
+                    intuit_auth_client.get_bearer_token(auth_code)
+                    
+                    st.info("Successfully exchanged authorization code for tokens")
+                except AuthClientError as auth_error:
+                    # Specific handling for authentication errors
+                    import traceback
+                    error_details = traceback.format_exc()
+                    
+                    # Check for invalid_grant error specifically
+                    if "invalid_grant" in str(auth_error).lower():
+                        st.error("Authentication Error: The authorization code has expired or already been used.")
+                        st.info("QuickBooks authorization codes can only be used once and expire after 10 minutes.")
+                    else:
+                        st.error(f"OAuth processing failed: {str(auth_error)}")
+                    
+                    with st.expander("Technical Error Details"):
+                        st.code(error_details)
+                    
+                    # Get a fresh authorization URL for the user
+                    auth_url = get_quickbooks_auth_url()
+                    
+                    if auth_url:
+                        st.info("Please try the authorization process again with a fresh code:")
+                        # Store the auth URL in session state for the button to use
+                        st.session_state['qb_auth_url'] = auth_url
+                        # Display the full URL for greater transparency
+                        st.code(auth_url, language="text")
+                        # Use a button instead of a link - this will trigger a Javascript redirect
+                        if st.button("Reconnect to QuickBooks", key="reconnect_button"):
+                            # Use Javascript to redirect - more reliable than HTML links in Streamlit
+                            st.markdown(f"""
+                            <script>
+                                window.top.location.href = '{auth_url}';
+                            </script>
+                            """, unsafe_allow_html=True)
+                            st.info("Redirecting to QuickBooks authorization page...")
+                    
+                    # Add a button to continue to the main app
+                    if st.button("Continue to Application"):
+                        # Clear the query parameters and reload
+                        st.query_params.clear()
+                        st.rerun()
+                    
+                    # Skip rendering the rest of the app while processing OAuth
+                    st.stop()
+                    
                 except Exception as token_error:
-                    # Special handling for auth code errors - more user-friendly
+                    # Generic handling for other errors
                     import traceback
                     error_details = traceback.format_exc()
                     st.error(f"OAuth processing failed: {str(token_error)}")
-                    st.error("The authorization code may have expired or already been used.")
                     
                     with st.expander("Error Details"):
                         st.code(error_details)
@@ -1507,7 +1567,19 @@ def main():
                     
                     if auth_url:
                         st.info("Please try the authorization process again:")
-                        st.markdown(f'<a href="{auth_url}" target="_self" style="display: inline-block; background-color: #00A09D; color: white; padding: 0.5rem 1rem; text-decoration: none; border-radius: 5px; font-weight: bold;">Reconnect to QuickBooks</a>', unsafe_allow_html=True)
+                        # Store the auth URL in session state for the button to use
+                        st.session_state['qb_auth_url'] = auth_url
+                        # Display the full URL for greater transparency
+                        st.code(auth_url, language="text")
+                        # Use a button instead of a link - this will trigger a Javascript redirect
+                        if st.button("Reconnect to QuickBooks", key="reconnect_button2"):
+                            # Use Javascript to redirect - more reliable than HTML links in Streamlit
+                            st.markdown(f"""
+                            <script>
+                                window.top.location.href = '{auth_url}';
+                            </script>
+                            """, unsafe_allow_html=True)
+                            st.info("Redirecting to QuickBooks authorization page...")
                     
                     # Add a button to continue to the main app
                     if st.button("Continue to Application"):
@@ -1579,7 +1651,19 @@ def main():
                 auth_url = get_quickbooks_auth_url()
                 
                 if auth_url:
-                    st.markdown(f'<a href="{auth_url}" target="_self" style="display: inline-block; background-color: #00A09D; color: white; padding: 0.5rem 1rem; text-decoration: none; border-radius: 5px; font-weight: bold;">Reconnect to QuickBooks</a>', unsafe_allow_html=True)
+                    # Store the auth URL in session state for the button to use
+                    st.session_state['qb_auth_url'] = auth_url
+                    # Display the full URL for greater transparency
+                    st.code(auth_url, language="text")
+                    # Use a button instead of a link - this will trigger a Javascript redirect
+                    if st.button("Reconnect to QuickBooks", key="reconnect_button3"):
+                        # Use Javascript to redirect - more reliable than HTML links in Streamlit
+                        st.markdown(f"""
+                        <script>
+                            window.top.location.href = '{auth_url}';
+                        </script>
+                        """, unsafe_allow_html=True)
+                        st.info("Redirecting to QuickBooks authorization page...")
                 
                 # Add a button to continue to the main app
                 if st.button("Continue to Application"):
@@ -2587,36 +2671,23 @@ def main():
                                 status_placeholder.info("Exporting to QuickBooks... (this may take a moment)")
                                 
                                 # Export to QuickBooks (this will be logged extensively)
-                                success, message = export_to_quickbooks(
+                                success, message, estimate_id, estimate_url = export_to_quickbooks(
                                     export_design_info, 
                                     export_job_inputs, 
                                     export_cost_results
                                 )
                                 
                                 # Store the result without refreshing the page
-                                st.session_state.qb_last_export_status = (success, message)
+                                st.session_state.qb_last_export_status = (success, message, estimate_id, estimate_url)
                                 
                                 # Update the UI with the result (no page refresh)
                                 if success:
-                                    # Extract estimate ID and other info from the message for direct linking
-                                    import re
-                                    estimate_id_match = re.search(r'ID: ([^)]+)', message)
-                                    estimate_id = estimate_id_match.group(1) if estimate_id_match else None
+                                    # We already have estimate_id and estimate_url directly from the function
+                                    # Show success with a clickable link
+                                    status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                     
-                                    # Get environment (sandbox/production)
-                                    environment = "sandbox"  # Default to sandbox
-                                    qb_settings = database.get_quickbooks_settings()
-                                    if qb_settings and 'QB_ENVIRONMENT' in qb_settings:
-                                        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-                                    
-                                    # Create a direct link if possible
-                                    if estimate_id and environment:
-                                        base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
-                                        estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
-                                        # Show success with a clickable link
-                                        status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
-                                        
-                                        # Add a more attractive button-style link
+                                    # If we have a URL to link to, add a more attractive button-style link
+                                    if estimate_url:
                                         status_placeholder.markdown(f"""
                                         <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
                                             <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
@@ -2643,8 +2714,6 @@ def main():
                                             <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
                                         </div>
                                         """, unsafe_allow_html=True)
-                                    else:
-                                        status_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                 else:
                                     status_placeholder.error(f"Failed to export to QuickBooks: {message}")
                             else:
@@ -2736,26 +2805,13 @@ def main():
                             
                             # Display previous export result in the status placeholder
                             if st.session_state[history_status_key]:
-                                success, message = st.session_state[history_status_key]
+                                success, message, estimate_id, estimate_url = st.session_state[history_status_key]
                                 if success:
-                                    # Check if the message contains an estimate ID for linking
-                                    import re
-                                    estimate_id_match = re.search(r'ID: ([^)]+)', message)
-                                    estimate_id = estimate_id_match.group(1) if estimate_id_match else None
-                                    
-                                    # Get environment (sandbox/production)
-                                    environment = "sandbox"  # Default to sandbox
-                                    qb_settings = database.get_quickbooks_settings()
-                                    if qb_settings and 'QB_ENVIRONMENT' in qb_settings:
-                                        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-                                    
                                     # Show success message
                                     status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                     
-                                    # If we have an estimate ID, create a styled direct link
-                                    if estimate_id and environment:
-                                        base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
-                                        estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
+                                    # If we have an estimate URL, create a styled direct link
+                                    if estimate_url:
                                         
                                         # Add a styled button link with improved design
                                         status_history_placeholder.markdown(f"""
@@ -2817,36 +2873,22 @@ def main():
                                     print(f"Customer: {export_job_inputs.get('customer_name', 'Unknown')}")
                                     
                                     # Execute the export
-                                    success, message = export_to_quickbooks(
+                                    success, message, estimate_id, estimate_url = export_to_quickbooks(
                                         export_design_info, 
                                         export_job_inputs, 
                                         export_cost_results
                                     )
                                     
                                     # Store the result without refreshing
-                                    st.session_state[history_status_key] = (success, message)
+                                    st.session_state[history_status_key] = (success, message, estimate_id, estimate_url)
                                     
                                     # Update the UI with the result (no page refresh)
                                     if success:
-                                        # Extract estimate ID and other info from the message for direct linking
-                                        import re
-                                        estimate_id_match = re.search(r'ID: ([^)]+)', message)
-                                        estimate_id = estimate_id_match.group(1) if estimate_id_match else None
+                                        # Show success with a styled clickable link
+                                        status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                         
-                                        # Get environment (sandbox/production)
-                                        environment = "sandbox"  # Default to sandbox
-                                        qb_settings = database.get_quickbooks_settings()
-                                        if qb_settings and 'QB_ENVIRONMENT' in qb_settings:
-                                            environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
-                                        
-                                        # Create a direct link if possible
-                                        if estimate_id and environment:
-                                            base_url = "https://app.sandbox.qbo.intuit.com" if environment == "sandbox" else "https://app.qbo.intuit.com"
-                                            estimate_url = f"{base_url}/app/estimate?txnId={estimate_id}"
-                                            # Show success with a styled clickable link
-                                            status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
-                                            
-                                            # Add a more attractive button-style link (matching the main export button style)
+                                        # Add a more attractive button-style link if URL is provided
+                                        if estimate_url:
                                             status_history_placeholder.markdown(f"""
                                             <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
                                                 <p style="margin-bottom: 10px; font-weight: bold;">Your estimate is ready to view in QuickBooks!</p>
@@ -2873,8 +2915,6 @@ def main():
                                                 <p style="margin-top: 10px; font-size: 0.8em; color: #666;">Note: It may take a few moments for the estimate to appear in QuickBooks.</p>
                                             </div>
                                             """, unsafe_allow_html=True)
-                                        else:
-                                            status_history_placeholder.success(f"Successfully exported to QuickBooks: {message}")
                                     else:
                                         status_history_placeholder.error(f"Failed to export to QuickBooks: {message}")
                                     
@@ -2890,7 +2930,7 @@ def main():
                                         st.code(error_trace)
                                     
                                     # Store error status
-                                    st.session_state[history_status_key] = (False, f"Error: {str(e)}")
+                                    st.session_state[history_status_key] = (False, f"Error: {str(e)}", None, None)
     
     # Admin Settings Tab
     with tab3:
