@@ -2,7 +2,6 @@
 Streamlit-only runner for Embroidery Quoting Tool
 
 This script runs the Streamlit application on port 5000.
-OAuth callbacks are handled directly by Streamlit via callback.py.
 """
 
 import os
@@ -23,10 +22,9 @@ def run_streamlit_app():
     """Run the Streamlit application on port 5000"""
     logger.info("Starting Embroidery Quoting Tool...")
     
-    # First, ensure the database has the required QuickBooks settings table
+    # QuickBooks functionality has been removed
     import database
-    database.create_quickbooks_table_if_missing()
-    logger.info("QuickBooks settings table verified")
+    logger.info("Database connection verified")
     
     # Start the Streamlit application
     logger.info("Starting Streamlit application on port 5000...")

@@ -414,6 +414,297 @@ def get_recent_quotes(limit=10):
         if conn:
             conn.close()
 
+def create_quickbooks_table_if_missing():
+    """Creates the QuickBooks settings table if it doesn't exist"""
+    conn = None
+    try:
+        conn = get_connection()
+        if conn is None:
+            print("ERROR: Unable to get database connection to create QuickBooks table")
+            return False
+        
+        # Check if table exists
+        check_query = """
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_name = 'quickbooks_settings'
+        );
+        """
+        exists = conn.execute(text(check_query)).scalar()
+        
+        if not exists:
+            print("Creating QuickBooks settings table...")
+            
+            # Create the table
+            create_query = """
+            CREATE TABLE quickbooks_settings (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                value TEXT,
+                description TEXT,
+                token_expires_at FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+            conn.execute(text(create_query))
+            
+            # Initialize with empty settings
+            init_query = """
+            INSERT INTO quickbooks_settings 
+            (name, value, description) VALUES 
+            ('QB_ACCESS_TOKEN', '', 'QuickBooks API Access Token'),
+            ('QB_REFRESH_TOKEN', '', 'QuickBooks API Refresh Token'),
+            ('QB_REALM_ID', '', 'QuickBooks Company/Realm ID'),
+            ('QB_CLIENT_ID', '', 'QuickBooks API Client ID'),
+            ('QB_CLIENT_SECRET', '', 'QuickBooks API Client Secret'),
+            ('QB_ENVIRONMENT', 'sandbox', 'QuickBooks Environment (sandbox or production)')
+            ON CONFLICT (name) DO NOTHING;
+            """
+            conn.execute(text(init_query))
+            conn.commit()
+            print("QuickBooks settings table created and initialized")
+            return True
+        
+        return True
+    except SQLAlchemyError as e:
+        if conn:
+            conn.rollback()
+        error_msg = f"Error creating QuickBooks table: {str(e)}"
+        print(error_msg)
+        st.error(error_msg)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_quickbooks_settings():
+    """Get all QuickBooks integration settings from the database"""
+    conn = None
+    try:
+        # Ensure the table exists
+        table_created = create_quickbooks_table_if_missing()
+        if not table_created:
+            print("Failed to create/verify QuickBooks settings table")
+            return {}
+        
+        conn = get_connection()
+        if conn is None:
+            print("ERROR: Unable to get database connection for QuickBooks settings")
+            return {}
+            
+        query = """
+        SELECT name, value, description, token_expires_at 
+        FROM quickbooks_settings 
+        ORDER BY id
+        """
+        result = conn.execute(text(query))
+        
+        # Convert to dictionary with settings as keys
+        settings = {}
+        for row in result:
+            settings[row[0]] = {
+                'value': row[1],
+                'description': row[2],
+                'expires_at': row[3]
+            }
+        
+        # Debug output
+        for name, setting in settings.items():
+            value_preview = ""
+            if setting['value']:
+                if len(setting['value']) > 10 and name.endswith("_TOKEN"):
+                    value_preview = f"{setting['value'][:5]}...{setting['value'][-5:]}"
+                else:
+                    value_preview = setting['value']
+            print(f"Setting {name}: {value_preview}")
+        
+        return settings
+    except SQLAlchemyError as e:
+        error_msg = f"Database error getting QuickBooks settings: {str(e)}"
+        print(error_msg)
+        if 'st' in globals():  # Check if streamlit is available
+            st.error(error_msg)
+        # Return empty dictionary as fallback
+        return {}
+    finally:
+        if conn:
+            conn.close()
+        
+def update_quickbooks_token(token_type, token_value, token_expires_at=None):
+    """Update a QuickBooks token in the database with enhanced error handling and reliability"""
+    # Safeguard against empty tokens
+    if not token_value:
+        print(f"Warning: Attempted to save empty {token_type} token. Ignoring request.")
+        return False
+        
+    # Print debug information (sanitized)
+    value_preview = f"{token_value[:10]}..." if token_value and len(token_value) > 10 else "None"
+    print(f"Updating QuickBooks token: {token_type}, Value: {value_preview}, Expires: {token_expires_at}")
+    
+    conn = None
+    try:
+        # The token_expires_at should remain as a float (epoch time) for storage
+        # No conversion needed since our database schema expects FLOAT for token_expires_at
+        # Just ensure it's a float if provided
+        if token_expires_at is not None:
+            token_expires_at = float(token_expires_at)
+            print(f"Using expiration timestamp: {token_expires_at}")
+            
+        # Get database connection
+        conn = get_connection()
+        if conn is None:
+            print(f"ERROR: Unable to get database connection to update token {token_type}")
+            return False
+            
+        # First check if the row exists
+        check_query = "SELECT COUNT(*) FROM quickbooks_settings WHERE name = :name"
+        result = conn.execute(text(check_query), {"name": token_type})
+        count = result.scalar()
+        
+        if count == 0:
+            print(f"No record found for {token_type}, will insert instead of update")
+            # Insert a new row if it doesn't exist
+            insert_query = """
+            INSERT INTO quickbooks_settings 
+            (name, value, description, token_expires_at, created_at, updated_at)
+            VALUES 
+            (:name, :value, :description, :token_expires_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+            
+            description = f"QuickBooks API {token_type.replace('QB_', '')}"
+            
+            params = {
+                "name": token_type,
+                "value": token_value,
+                "description": description,
+                "token_expires_at": token_expires_at
+            }
+            
+            conn.execute(text(insert_query), params)
+        else:
+            # Update existing row
+            if token_expires_at:
+                query = """
+                UPDATE quickbooks_settings 
+                SET value = :value, 
+                    token_expires_at = :token_expires_at,
+                    updated_at = CURRENT_TIMESTAMP 
+                WHERE name = :name
+                """
+                print(f"Executing update with expiration: {token_type}")
+                conn.execute(text(query), {
+                    "value": token_value,
+                    "name": token_type,
+                    "token_expires_at": token_expires_at
+                })
+            else:
+                query = """
+                UPDATE quickbooks_settings 
+                SET value = :value, 
+                    updated_at = CURRENT_TIMESTAMP 
+                WHERE name = :name
+                """
+                print(f"Executing update without expiration: {token_type}")
+                conn.execute(text(query), {
+                    "value": token_value,
+                    "name": token_type
+                })
+        
+        # Explicitly commit the transaction
+        conn.commit()
+        print(f"Token {token_type} saved successfully")
+        
+        # Verify the token was actually saved
+        verify_query = "SELECT value FROM quickbooks_settings WHERE name = :name"
+        verify_result = conn.execute(text(verify_query), {"name": token_type})
+        saved_value = verify_result.scalar()
+        
+        # Special handling - if the token wasn't saved properly, try a direct SQL approach
+        if not saved_value or saved_value == "":
+            print(f"WARNING: Verification failed for {token_type}, attempting emergency direct SQL update")
+            
+            # Try a direct SQL approach with explicit transaction
+            direct_update_query = f"""
+            UPDATE quickbooks_settings 
+            SET value = :value, 
+                updated_at = CURRENT_TIMESTAMP 
+            WHERE name = :name
+            """
+            
+            conn.execute(text(direct_update_query), {
+                "value": token_value,
+                "name": token_type
+            })
+            conn.commit()
+            
+            # Re-verify
+            verify_again = conn.execute(text(verify_query), {"name": token_type}).scalar()
+            if verify_again and verify_again != "":
+                print(f"Emergency update successful for {token_type}")
+                saved_value = verify_again
+            else:
+                print(f"WARNING: Emergency update failed for {token_type}")
+        
+        # Log the verification result (with sanitized output)
+        saved_preview = f"{saved_value[:10]}..." if saved_value and len(saved_value) > 10 else "None or Empty"
+        print(f"Verification - {token_type} value in database: {saved_preview}")
+        
+        return bool(saved_value and saved_value != "")
+        
+    except SQLAlchemyError as sql_err:
+        # Handle SQL errors with proper transaction management
+        if conn:
+            conn.rollback()
+        error_msg = f"SQL error saving {token_type}: {str(sql_err)}"
+        print(error_msg)
+        import traceback
+        print(traceback.format_exc())
+        return False
+    except Exception as e:
+        # Handle general exceptions
+        error_msg = f"Unexpected error saving {token_type}: {str(e)}"
+        print(error_msg)
+        import traceback
+        print(traceback.format_exc())
+        return False
+    finally:
+        # Make sure to close the connection
+        if conn:
+            conn.close()
+
+def reset_quickbooks_auth():
+    """Reset QuickBooks authentication tokens"""
+    conn = None
+    try:
+        print("Resetting QuickBooks authentication tokens...")
+        conn = get_connection()
+        if conn is None:
+            print("ERROR: Unable to get database connection to reset tokens")
+            return False
+            
+        # Reset the access token
+        query = """
+        UPDATE quickbooks_settings 
+        SET value = '', token_expires_at = NULL, updated_at = CURRENT_TIMESTAMP 
+        WHERE name = 'QB_ACCESS_TOKEN' OR name = 'QB_REFRESH_TOKEN'
+        """
+        conn.execute(text(query))
+        conn.commit()
+        print("QuickBooks tokens have been reset")
+        return True
+    except SQLAlchemyError as e:
+        if conn:
+            conn.rollback()
+        error_msg = f"Database error resetting QuickBooks auth: {str(e)}"
+        print(error_msg)
+        st.error(error_msg)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_quickbooks_auth_status():
     """Check if QuickBooks authorization is valid and not expired with enhanced debugging and reliability"""
     try:
         print("Checking QuickBooks authentication status...")
@@ -554,4 +845,4 @@ def get_recent_quotes(limit=10):
         print(error_msg)
         import traceback
         print(traceback.format_exc()) 
-        return False, error_msg# QuickBooks integration removed - all related functions have been deleted
+        return False, error_msg
