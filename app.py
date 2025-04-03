@@ -22,61 +22,6 @@ import requests
 import urllib.parse
 import database
 
-# Import QuickBooks Libraries with better error handling
-QUICKBOOKS_AVAILABLE = False
-QUICKBOOKS_IMPORT_ERROR = ""
-try:
-    # First check if the intuitlib module is available
-    import intuitlib
-    try:
-        from intuitlib.client import AuthClient
-        from intuitlib.exceptions import AuthClientError
-        print("Intuit OAuth library imported successfully")
-        
-        # Now check if the quickbooks module is available
-        import quickbooks
-        try:
-            from quickbooks.objects.invoice import Invoice
-            from quickbooks.objects.customer import Customer
-            from quickbooks.objects.item import Item
-            from quickbooks.objects.detailline import SalesItemLine, SalesItemLineDetail
-            from quickbooks.objects.base import Ref
-            from quickbooks import QuickBooks
-            # If we get here, all imports worked
-            QUICKBOOKS_AVAILABLE = True
-            print("QuickBooks libraries imported successfully")
-        except ImportError as qb_error:
-            QUICKBOOKS_IMPORT_ERROR = f"Error importing QuickBooks objects: {str(qb_error)}"
-            print(QUICKBOOKS_IMPORT_ERROR)
-    except ImportError as intuit_error:
-        QUICKBOOKS_IMPORT_ERROR = f"Error importing Intuit OAuth library: {str(intuit_error)}"
-        print(QUICKBOOKS_IMPORT_ERROR)
-except ImportError as base_error:
-    QUICKBOOKS_IMPORT_ERROR = f"Base module 'intuitlib' not available: {str(base_error)}"
-    print(QUICKBOOKS_IMPORT_ERROR)
-
-# Define placeholder classes for type checking if libraries not available
-if not QUICKBOOKS_AVAILABLE:
-    print(f"Setting up placeholder QuickBooks classes: {QUICKBOOKS_IMPORT_ERROR}")
-    class AuthClient:
-        pass
-    class AuthClientError(Exception):
-        pass
-    class QuickBooks:
-        pass
-    class Invoice:
-        pass
-    class Customer:
-        pass
-    class Item:
-        pass
-    class SalesItemLine:
-        pass
-    class SalesItemLineDetail:
-        pass
-    class Ref:
-        pass
-
 # Set page config
 st.set_page_config(
     page_title="Embroidery Quoting Tool",
