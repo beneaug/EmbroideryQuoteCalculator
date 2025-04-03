@@ -1,0 +1,71 @@
+The error indicates that QuickBooks is rejecting the authorization code because it’s either been used already or it’s no longer valid (expired). Based on your logs and our review of your repository, here are some points to consider and changes you can implement:
+
+⸻
+
+1. Ensure Single Use of the Authorization Code
+	•	Avoid Re-Exchange on Refresh:
+If the callback route is hit more than once—say, by a browser refresh—the same code gets re-sent. Once the code is used in a successful token exchange, it should never be used again.
+	•	Solution: Post-Redirect-Get Pattern
+Immediately redirect the user after successfully exchanging the code so that a refresh won’t trigger another token exchange. For example:
+
+@app.route('/callback')
+def quickbooks_oauth_callback():
+    # Check if we already have tokens
+    if 'qb_access_token' in session:
+        flash("QuickBooks is already connected.")
+        return redirect(url_for('dashboard'))
+
+    auth_code = request.args.get('code')
+    realm_id = request.args.get('realmId')
+    
+    if not auth_code:
+        flash("Missing authorization code.")
+        return redirect(url_for('error_page'))
+
+    try:
+        # Exchange the authorization code for tokens
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        session['qb_access_token'] = tokens.get('access_token')
+        session['qb_refresh_token'] = tokens.get('refresh_token')
+        session['qb_realm_id'] = realm_id
+
+        # Redirect immediately to avoid a re-use on refresh
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        app.logger.error("Token exchange error: %s", e)
+        flash("Failed to connect with QuickBooks.")
+        return redirect(url_for('error_page'))
+
+
+	•	Use a Session Flag:
+If you need to stay on the same page, set a flag (e.g., session['code_used'] = True) right after the token exchange. Check for that flag at the start of your callback to avoid reprocessing.
+
+⸻
+
+2. Watch for Timing Issues
+	•	Exchange Promptly:
+QuickBooks authorization codes expire in about 10 minutes. Ensure that the token exchange is triggered immediately upon callback. Avoid any debugging pauses or lengthy processing before calling get_bearer_token().
+
+⸻
+
+3. Check for Environment or Parameter Issues
+	•	Redirect URI Consistency:
+Confirm that the redirect URI used to obtain the authorization code exactly matches the one registered in your Intuit Developer settings (including protocol, port, and trailing slash).
+	•	Realm ID Parameter:
+Make sure you pass the realm_id correctly. In some parts of your code you might be using positional parameters. For clarity and consistency, using a keyword argument (e.g., realm_id=realm_id) might help avoid confusion if the library expects it that way.
+
+⸻
+
+4. Add Logging for Debugging
+	•	Log the Authorization Code:
+Temporarily log the incoming authorization code and check that it’s not reused across multiple requests.
+	•	Log the Token Exchange Call:
+Ensure that your logs show only a single call to get_bearer_token() per OAuth flow. This can help you verify that the endpoint isn’t being triggered more than once.
+
+⸻
+
+Final Takeaway
+
+The recurring invalid_grant error is almost certainly due to the authorization code being used more than once or exchanged after it has expired. By immediately redirecting after a successful token exchange and using a session flag to prevent duplicate exchanges, you should be able to resolve this issue. Also, double-check that your environment settings (redirect URI, credentials, and realm id) are consistent between QuickBooks and your application.
+
+Try implementing these changes, clear your session (or use an incognito window), and then re-initiate the OAuth flow to confirm that the error no longer occurs.
