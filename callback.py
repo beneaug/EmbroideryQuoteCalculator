@@ -18,22 +18,18 @@ logger = logging.getLogger('qb_callback')
 # Add a page title
 st.set_page_config(page_title="QuickBooks Authentication", layout="centered")
 
-# Get query parameters 
-params = st.experimental_get_query_params()
+# Process query parameters immediately
+params = st.query_params
 logger.info(f"Received callback with params: {params}")
 
-# Handle callback
-if 'code' in params and 'realmId' in params:
-    code = params['code'][0]  # Get first value since query params are lists
-    realm_id = params['realmId'][0]
-    state = params.get('state', [''])[0]
-
-    st.title("QuickBooks Authentication")
-    st.info("Processing your QuickBooks authorization...")
-    logger.info(f"Processing auth code for realm {realm_id}")
-
+# Function to directly exchange authorization code for tokens using REST API
+def direct_token_exchange(code, realm_id):
+    """
+    Exchange authorization code for tokens using direct API call
+    and save using the dedicated database function.
+    """
     try:
-        # Get settings
+        # Get QuickBooks settings from database
         qb_settings = database.get_quickbooks_settings()
         client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
         client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
@@ -44,9 +40,10 @@ if 'code' in params and 'realmId' in params:
         redirect_uri = f"https://{replit_domain}/callback"
         logger.info(f"Using redirect URI: {redirect_uri}")
 
-        # Exchange code for tokens
+        # Token exchange endpoint
         token_endpoint = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-
+        
+        # Prepare request data
         data = {
             'grant_type': 'authorization_code',
             'code': code,
@@ -63,9 +60,15 @@ if 'code' in params and 'realmId' in params:
         }
 
         logger.info("Making token exchange request...")
+        logger.info(f"Request details - URI: {redirect_uri}, Code: {code[:10]}...")
+        
+        # Send the request with properly encoded form data
         response = requests.post(token_endpoint, data=urlencode(data), headers=headers)
         logger.info(f"Token response status: {response.status_code}")
-        logger.info(f"Token response: {response.text}")
+        
+        # Only log the first part of the response to avoid logging sensitive data
+        resp_text = response.text[:100] + "..." if len(response.text) > 100 else response.text
+        logger.info(f"Token response: {resp_text}")
 
         if response.status_code == 200:
             # Parse response
@@ -77,41 +80,87 @@ if 'code' in params and 'realmId' in params:
             expires_in = token_data.get('expires_in', 3600)
             token_expiry = time.time() + expires_in
 
+            # Log token details (partially masked)
+            if access_token:
+                logger.info(f"Access token received (first 5 chars): {access_token[:5]}...")
+                logger.info(f"Token expires in: {expires_in} seconds (at epoch {token_expiry})")
+            if refresh_token:
+                logger.info(f"Refresh token received (first 5 chars): {refresh_token[:5]}...")
+
             # Save tokens with explicit database calls
             logger.info("Saving tokens to database...")
-            try:
-                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-                database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
-                database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
-                logger.info("Tokens saved successfully")
-
-                # Redirect back to main app with success
-                success_url = f"https://{replit_domain}?qb_auth_success=true&realm_id={realm_id}"
-                st.success("✅ Authentication successful!")
-                st.markdown(f'<meta http-equiv="refresh" content="2;url={success_url}">', unsafe_allow_html=True)
-                st.info("You will be redirected back to the main application...")
-
-            except Exception as save_error:
-                logger.error(f"Error saving tokens: {str(save_error)}")
-                st.error(f"Failed to save authentication tokens: {str(save_error)}")
+            
+            # Save tokens and verify the results
+            access_saved = database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
+            refresh_saved = database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
+            realm_saved = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+            
+            logger.info(f"Database save results: Access={access_saved}, Refresh={refresh_saved}, Realm={realm_saved}")
+            
+            if access_saved and refresh_saved and realm_saved:
+                logger.info("Tokens and Realm ID successfully saved and verified.")
+                return True, "Authentication successful"
+            else:
+                errors = []
+                if not access_saved: errors.append("Access Token")
+                if not refresh_saved: errors.append("Refresh Token")
+                if not realm_saved: errors.append("Realm ID")
+                error_detail = f"Token/Realm saving failed for: {', '.join(errors)}"
+                logger.error(error_detail)
+                return False, error_detail
 
         else:
             error_msg = f"Token exchange failed: {response.status_code} - {response.text}"
             logger.error(error_msg)
-            st.error(error_msg)
-
-            # Redirect back with error
-            error_url = f"https://{replit_domain}?qb_auth_error=true&error={error_msg}"
-            st.markdown(f'<meta http-equiv="refresh" content="5;url={error_url}">', unsafe_allow_html=True)
+            return False, error_msg
 
     except Exception as e:
-        logger.error(f"Error in callback: {str(e)}")
+        error_msg = f"Unexpected error in token exchange: {str(e)}"
+        logger.error(error_msg)
         logger.error(traceback.format_exc())
-        st.error(f"Authentication error: {str(e)}")
+        return False, error_msg
 
+# Handle callback
+if 'code' in params and 'realmId' in params:
+    code = params['code']  # Get the code
+    realm_id = params['realmId']  # Get the realm ID
+    state = params.get('state', '')
+
+    st.title("QuickBooks Authentication")
+    st.info("Processing your QuickBooks authorization...")
+    logger.info(f"Processing auth code for realm {realm_id}")
+
+    # Immediately exchange code for tokens using direct API call
+    success, message = direct_token_exchange(code, realm_id)
+    
+    if success:
+        st.success("✅ Authentication successful!")
+        
+        # Get Replit domain for redirect
+        replit_domain = os.environ.get("REPLIT_DOMAINS", "").split(',')[0].strip()
+        success_url = f"https://{replit_domain}?qb_auth_success=true&realm_id={realm_id}"
+        
+        # Redirect back to main app with success param
+        st.markdown(f"""
+        <meta http-equiv="refresh" content="2;url={success_url}">
+        """, unsafe_allow_html=True)
+        st.info("You will be redirected back to the main application...")
+    else:
+        st.error(f"❌ Authentication failed: {message}")
+        
+        # Get Replit domain for redirect
+        replit_domain = os.environ.get("REPLIT_DOMAINS", "").split(',')[0].strip()
+        error_url = f"https://{replit_domain}?qb_auth_error=true&error={message}"
+        
+        # Redirect back with error
+        st.markdown(f"""
+        <meta http-equiv="refresh" content="5;url={error_url}">
+        """, unsafe_allow_html=True)
+        st.warning("You will be redirected back to the main application...")
+        
         # Show technical details for debugging
         with st.expander("Technical Details"):
-            st.code(traceback.format_exc())
+            st.code(message)
 else:
     logger.warning("Callback received without required parameters")
     st.title("Invalid Callback")

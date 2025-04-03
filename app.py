@@ -833,7 +833,7 @@ def get_quickbooks_client():
         realm_id = qb_settings.get('QB_REALM_ID', {}).get('value')
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
         
-        # Get redirect URI with fallback
+        # Get redirect URI with fallback - must include the /callback path
         redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value')
         if not redirect_uri:
             # Use the Replit domain as the default redirect URI
@@ -841,9 +841,9 @@ def get_quickbooks_client():
             replit_domain = os.environ.get("REPLIT_DOMAINS")
             if replit_domain:
                 replit_domain = replit_domain.split(',')[0].strip()
-                redirect_uri = f"https://{replit_domain}"
+                redirect_uri = f"https://{replit_domain}/callback"
             else:
-                redirect_uri = "http://localhost:5000"
+                redirect_uri = "http://localhost:5000/callback"
         
         # Log the settings (with sensitive data masked)
         print(f"QuickBooks settings:")
