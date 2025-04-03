@@ -10,7 +10,9 @@ import sys
 import logging
 import subprocess
 import time
+import threading
 from threading import Thread
+import traceback
 
 # Configure logging
 logging.basicConfig(
@@ -50,7 +52,6 @@ def run_streamlit_app():
                 break
     
     # Create a thread to handle the output streaming
-    import threading
     output_thread = threading.Thread(target=stream_output)
     output_thread.daemon = True
     output_thread.start()
@@ -59,35 +60,92 @@ def run_streamlit_app():
     return process
 
 def run_oauth_server():
-    """Run the Flask OAuth server on port 8000"""
+    """Run the Flask OAuth server on port 5000 path /oauth/*"""
     logger.info("Starting OAuth callback server...")
     
     try:
-        # Import the Flask app from oauth_server
-        from oauth_server import app
-        
         # First, ensure the database has the required QuickBooks settings table
         import database
         database.create_quickbooks_table_if_missing()
         logger.info("QuickBooks settings table verified")
         
-        # Run the Flask app without the built-in reloader (since we're managing it)
-        logger.info("Starting OAuth server on port 8000")
-        app.run(host='0.0.0.0', port=8000, use_reloader=False, debug=False)
+        # Import the Flask app from oauth_server
+        from oauth_server import app
+        
+        # Run the Flask app using Werkzeug server directly to avoid threading issues
+        from werkzeug.serving import make_server
+        
+        # Create a proper HTTP server with Werkzeug
+        http_server = make_server('0.0.0.0', 8000, app, threaded=True)
+        logger.info("OAuth server created and ready to run on port 8000")
+        
+        # Start the server in a separate thread
+        server_thread = threading.Thread(target=http_server.serve_forever)
+        server_thread.daemon = True
+        
+        # Start the server thread
+        server_thread.start()
+        logger.info("OAuth server thread started successfully")
+        
+        # Return the thread for monitoring
+        return server_thread
+        
     except Exception as e:
-        logger.error(f"Error starting OAuth server: {str(e)}", exc_info=True)
+        logger.error(f"Error starting OAuth server: {str(e)}")
+        logger.error(traceback.format_exc())
         # Sleep briefly to prevent immediate restart if there's a critical error
-        import time
         time.sleep(2)
-        raise
+        return None
 
+# Monitor threads and restart if needed
+def monitor_services(streamlit_process, oauth_thread):
+    logger.info("Starting service monitoring...")
+    
+    try:
+        while True:
+            # Check Streamlit process
+            if streamlit_process.poll() is not None:
+                logger.error("Streamlit process died, restarting...")
+                streamlit_process = run_streamlit_app()
+            
+            # Check OAuth thread (harder to detect if it's actually working)
+            if oauth_thread and not oauth_thread.is_alive():
+                logger.error("OAuth server thread died, restarting...")
+                oauth_thread = run_oauth_server()
+                
+            # Sleep before checking again
+            time.sleep(10)
+            
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, shutting down...")
+        if streamlit_process:
+            streamlit_process.terminate()
+    except Exception as e:
+        logger.error(f"Error in monitor loop: {str(e)}")
+        logger.error(traceback.format_exc())
+        
 if __name__ == "__main__":
     logger.info("Starting Embroidery Quoting Tool...")
     
-    # Create and start the Streamlit thread
-    streamlit_thread = Thread(target=run_streamlit_app)
-    streamlit_thread.daemon = True  # Allow the thread to be terminated when main thread exits
-    streamlit_thread.start()
+    # Start the Streamlit application
+    streamlit_process = run_streamlit_app()
     
-    # Run the OAuth server in the main thread
-    run_oauth_server()
+    # Start the OAuth server in a dedicated thread
+    oauth_thread = run_oauth_server()
+    
+    # Monitor and restart services if needed
+    monitor_thread = Thread(target=monitor_services, args=(streamlit_process, oauth_thread))
+    monitor_thread.daemon = True
+    monitor_thread.start()
+    
+    # Keep the main thread alive
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+        if streamlit_process:
+            streamlit_process.terminate()
+    except Exception as e:
+        logger.error(f"Error in main thread: {str(e)}")
+        logger.error(traceback.format_exc())

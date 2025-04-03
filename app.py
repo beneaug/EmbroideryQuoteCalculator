@@ -1284,10 +1284,11 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         return False, f"Error exporting to QuickBooks: {str(e)}", None, None
 
 def get_quickbooks_auth_url():
-    """Generate QuickBooks authorization URL for the dedicated OAuth server
+    """Generate QuickBooks authorization URL with direct callback to our Streamlit app
     
-    This function creates an authorization URL that redirects to our dedicated
-    Flask OAuth server, which handles the token exchange process reliably.
+    This function creates an authorization URL that redirects directly to our Streamlit app
+    at the /callback path, where the token exchange is handled without relying on
+    a separate OAuth server.
     
     Returns:
         str: Authorization URL or None if error
@@ -1295,91 +1296,101 @@ def get_quickbooks_auth_url():
     try:
         # Get settings from database
         qb_settings = database.get_quickbooks_settings()
+        print("=== GENERATING QUICKBOOKS AUTH URL ===")
         
         # Get client credentials
         client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
         client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
         
-        # Check credentials
+        # Verify client credentials are set
         if not client_id or not client_secret:
-            st.error("Missing QuickBooks client credentials. Please set them in the Admin settings.")
+            error_msg = "Missing QuickBooks client credentials. Please set them in the Admin settings."
+            print(error_msg)
+            st.error(error_msg)
             return None
         
-        # Get redirect URI from environment or database
-        # IMPORTANT: This redirect URI must match exactly with what's in the Intuit Developer dashboard
+        # Get redirect URI - CRITICAL for OAuth flow
         import os
         
-        # Check if we already have a redirect URI stored in the database
-        redirect_uri_from_db = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
+        # IMPORTANT: For Replit, always use the actual Replit domain for the callback
+        # This ensures the callback comes back to our application properly
         replit_domain = os.environ.get("REPLIT_DOMAINS", "")
         
-        # First try using what's in the database since that's what the user has configured
-        if redirect_uri_from_db:
-            redirect_uri = redirect_uri_from_db
-            st.info(f"Using redirect URI from database: {redirect_uri}")
-        # Fall back to constructing from environment
-        elif replit_domain:
+        if replit_domain:
+            # Parse the first domain from the comma-separated list
             replit_domain = replit_domain.split(',')[0].strip()
+            # Set the callback URL to use this domain
             redirect_uri = f"https://{replit_domain}/callback"
-            st.info(f"Using redirect URI from environment: {redirect_uri}")
+            print(f"Using redirect URI from Replit domain: {redirect_uri}")
         else:
-            # Last resort fallback
+            # Fallback for local development (should never happen in production)
             redirect_uri = "https://embroideryquotecalculator.juliewoodland.repl.co/callback"
-            st.warning(f"Using hardcoded fallback redirect URI: {redirect_uri}")
+            print(f"WARNING: Using hardcoded fallback redirect URI: {redirect_uri}")
         
-        # Save the redirect URI
+        # Always update the redirect URI in the database to ensure consistency
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
         
-        # Use the official Intuit OAuth library
-        from intuitlib.client import AuthClient
-        from intuitlib.enums import Scopes
+        # For verification, read back the saved URI
+        qb_settings = database.get_quickbooks_settings()
+        saved_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
+        print(f"Verified saved redirect URI: {saved_uri}")
         
-        # Initialize the auth client
-        auth_client = AuthClient(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-            environment=environment
-        )
-        
-        # Define the required scopes
-        scopes = [
-            Scopes.ACCOUNTING,  # Required for access to financial data
-            Scopes.OPENID       # Required for authentication flow
-        ]
-        
-        # Generate a unique state parameter to prevent CSRF attacks
-        import uuid, time
-        state = f"{str(uuid.uuid4())}_{int(time.time())}"
-        
-        # Generate the authorization URL using the library
-        auth_url = auth_client.get_authorization_url(scopes)
-        
-        # Append state manually since the library doesn't support it directly
-        from urllib.parse import urlparse, parse_qs, urlencode
-        
-        # Parse the current URL
-        parsed_url = urlparse(auth_url)
-        
-        # Get the existing query parameters as a dict
-        params = parse_qs(parsed_url.query)
-        
-        # Add our state parameter
-        params['state'] = [state]
-        
-        # Reconstruct the URL with our added state parameter
-        query_string = urlencode(params, doseq=True)
-        new_url = parsed_url._replace(query=query_string).geturl()
-        
-        # Log the URL for debugging
-        print(f"Generated QuickBooks authorization URL with state: {new_url}")
-        
-        return new_url
+        # Initialize the OAuth client
+        try:
+            from intuitlib.client import AuthClient
+            from intuitlib.enums import Scopes
+            
+            # Create the OAuth client with our credentials and redirect URI
+            auth_client = AuthClient(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+                environment=environment
+            )
+            print(f"Created Intuit AuthClient with redirect to: {redirect_uri}")
+            
+            # Define scopes for the authorization request
+            scopes = [
+                Scopes.ACCOUNTING,  # For financial data access
+                Scopes.OPENID       # For authentication
+            ]
+            
+            # Generate a unique state parameter for CSRF protection
+            import uuid, time
+            state = f"{str(uuid.uuid4())}_{int(time.time())}"
+            print(f"Generated state parameter: {state[:8]}...")
+            
+            # Get the authorization URL from the Intuit library
+            auth_url = auth_client.get_authorization_url(scopes)
+            print(f"Got base authorization URL (truncated): {auth_url[:60]}...")
+            
+            # Add the state parameter to the URL
+            from urllib.parse import urlparse, parse_qs, urlencode
+            
+            parsed_url = urlparse(auth_url)
+            params = parse_qs(parsed_url.query)
+            params['state'] = [state]
+            
+            # Reconstruct the URL with our added state parameter
+            query_string = urlencode(params, doseq=True)
+            new_url = parsed_url._replace(query=query_string).geturl()
+            
+            print(f"Final authorization URL (truncated): {new_url[:60]}...")
+            print("=== END OF QUICKBOOKS AUTH URL GENERATION ===")
+            
+            return new_url
+            
+        except ImportError as imp_err:
+            error_msg = f"Failed to import QuickBooks libraries: {str(imp_err)}"
+            print(error_msg)
+            st.error(error_msg)
+            return None
         
     except Exception as e:
         import traceback
-        print(f"Error generating QuickBooks auth URL: {str(e)}")
+        error_msg = f"Error generating QuickBooks auth URL: {str(e)}"
+        print(error_msg)
         print(traceback.format_exc())
         st.error(f"Error connecting to QuickBooks: {str(e)}")
         return None
