@@ -1345,13 +1345,29 @@ def get_quickbooks_auth_url():
         # Save the state in session state so we can verify it later
         st.session_state['qb_auth_state'] = state
         
-        # Generate the authorization URL using the library with our state parameter
-        auth_url = auth_client.get_authorization_url(scopes, state=state)
+        # Generate the authorization URL using the library
+        auth_url = auth_client.get_authorization_url(scopes)
+        
+        # Append state manually since the library doesn't support it directly
+        from urllib.parse import urlparse, parse_qs, urlencode
+        
+        # Parse the current URL
+        parsed_url = urlparse(auth_url)
+        
+        # Get the existing query parameters as a dict
+        params = parse_qs(parsed_url.query)
+        
+        # Add our state parameter
+        params['state'] = [state]
+        
+        # Reconstruct the URL with our added state parameter
+        query_string = urlencode(params, doseq=True)
+        new_url = parsed_url._replace(query=query_string).geturl()
         
         # Log the URL for debugging
-        print(f"Generated QuickBooks authorization URL with state: {auth_url}")
+        print(f"Generated QuickBooks authorization URL with state: {new_url}")
         
-        return auth_url
+        return new_url
         
     except Exception as e:
         import traceback

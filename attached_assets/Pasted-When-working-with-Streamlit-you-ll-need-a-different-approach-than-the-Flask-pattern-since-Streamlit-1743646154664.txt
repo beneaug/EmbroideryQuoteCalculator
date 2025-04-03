@@ -1,0 +1,61 @@
+When working with Streamlit, you’ll need a different approach than the Flask pattern since Streamlit re-runs your script on every interaction. The Flask snippet was meant as a conceptual example for a typical web app with persistent endpoints. In Streamlit you can use session state and query parameter handling to achieve similar behavior. The goal is still the same: perform the token exchange only once and immediately “consume” the authorization code so that refreshing the page doesn’t trigger a duplicate exchange.
+
+Below is an example of how you might implement this in Streamlit:
+
+import streamlit as st
+from urllib.parse import urlencode
+
+# Assume auth_client is already set up elsewhere in your code.
+# And realm_id might be obtained similarly.
+
+# Get query parameters from the URL
+params = st.experimental_get_query_params()
+
+# Check if the authorization code is present and hasn't been processed yet.
+if 'code' in params and not st.session_state.get('qb_authenticated', False):
+    auth_code = params['code'][0]
+    realm_id = params.get('realmId', [None])[0]  # Ensure you handle realm_id appropriately
+
+    st.write("Starting token exchange...")
+
+    try:
+        # Exchange the authorization code for tokens (this should run only once)
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        st.session_state['qb_access_token'] = tokens.get('access_token')
+        st.session_state['qb_refresh_token'] = tokens.get('refresh_token')
+        st.session_state['qb_realm_id'] = realm_id
+        st.session_state['qb_authenticated'] = True  # Flag to avoid duplicate processing
+
+        # Clear the query parameters to prevent re-execution on refresh
+        st.experimental_set_query_params()
+
+        st.success("QuickBooks authentication successful!")
+
+    except Exception as e:
+        st.error(f"Token exchange error: {e}")
+
+# Continue with your app logic here
+if st.session_state.get('qb_authenticated'):
+    st.write("You are authenticated with QuickBooks!")
+else:
+    st.write("Click the button below to connect to QuickBooks.")
+    # Generate the auth URL (make sure it doesn't include a code if it's already processed)
+    # For example:
+    auth_url = auth_client.get_authorization_url()  # Adjust based on your auth_client usage
+    st.markdown(f"[Connect to QuickBooks]({auth_url})")
+
+Key Points in This Approach
+	•	Query Parameter Handling:
+We use st.experimental_get_query_params() to check for the code parameter that QuickBooks sends after the user authorizes the app.
+	•	Session State Flag:
+By setting a flag (qb_authenticated) in st.session_state once the code is exchanged, you ensure that even if the page reloads, the token exchange won’t run again.
+	•	Clearing Query Parameters:
+Using st.experimental_set_query_params() without parameters clears the query string from the URL. This helps prevent re-processing the code if the user refreshes.
+	•	Immediate Token Exchange:
+The token exchange happens as soon as the code is detected, keeping within the 10‑minute validity window.
+
+Is This the Most Optimal Workflow for QBO APIs on Streamlit?
+
+Yes, this pattern is well suited to Streamlit’s execution model. It keeps the OAuth logic in the main script, leverages Streamlit’s session state to avoid duplicate exchanges, and ensures a smooth user experience without the pitfalls of re-running code on refresh. If your application grows or if you need more complex routing, you might consider separating the OAuth callback handling into a dedicated endpoint (using a framework like Flask or FastAPI) that then communicates with your Streamlit app—but for many cases, the above approach will be both simpler and effective.
+
+This workflow mirrors the best practices (immediate exchange, avoiding reuse, and proper session handling) while fitting Streamlit’s paradigm.
