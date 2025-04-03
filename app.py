@@ -3431,82 +3431,8 @@ def main():
                 else:
                     st.error("Failed to reset QuickBooks authentication")
             
-            # Check if success parameter is in URL - this happens when returning from OAuth flow
-            import streamlit.components.v1 as components
-            
-            # JavaScript to extract URL parameters and notify Streamlit
-            components.html("""
-            <script>
-                // Function to get query parameters
-                function getUrlParameter(name) {
-                    name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
-                    var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
-                    var results = regex.exec(location.search);
-                    return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
-                }
-                
-                // Check for success parameter
-                var success = getUrlParameter('success');
-                var error = getUrlParameter('error');
-                var realm_id = getUrlParameter('realm_id');
-                
-                // Send data to Streamlit using session storage
-                if (success || error) {
-                    sessionStorage.setItem('oauth_success', success);
-                    sessionStorage.setItem('oauth_error', error);
-                    sessionStorage.setItem('oauth_realm_id', realm_id);
-                    
-                    // Clear the URL parameters after storing them
-                    if (window.history.replaceState) {
-                        // Remove query parameters but keep the path
-                        var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-                        window.history.replaceState({path: newUrl}, '', newUrl);
-                    }
-                    
-                    // Force refresh to apply UI changes
-                    window.location.reload();
-                }
-                
-                // For immediate feedback, check stored values
-                var storedSuccess = sessionStorage.getItem('oauth_success');
-                if (storedSuccess === 'true') {
-                    // Create and show a success message
-                    var successDiv = document.createElement('div');
-                    successDiv.style.backgroundColor = '#d4edda';
-                    successDiv.style.color = '#155724';
-                    successDiv.style.padding = '10px';
-                    successDiv.style.borderRadius = '4px';
-                    successDiv.style.marginBottom = '10px';
-                    successDiv.innerHTML = '<strong>Success!</strong> QuickBooks authorization completed successfully.';
-                    document.body.prepend(successDiv);
-                    
-                    // Clear the stored values after showing them once
-                    sessionStorage.removeItem('oauth_success');
-                    sessionStorage.removeItem('oauth_error');
-                    sessionStorage.removeItem('oauth_realm_id');
-                    
-                    // Refresh the page again after a short delay to show updated status
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 2000);
-                } else if (storedSuccess === 'false') {
-                    var errorMsg = sessionStorage.getItem('oauth_error') || 'Unknown error';
-                    var errorDiv = document.createElement('div');
-                    errorDiv.style.backgroundColor = '#f8d7da';
-                    errorDiv.style.color = '#721c24';
-                    errorDiv.style.padding = '10px';
-                    errorDiv.style.borderRadius = '4px';
-                    errorDiv.style.marginBottom = '10px';
-                    errorDiv.innerHTML = '<strong>Error!</strong> QuickBooks authorization failed: ' + errorMsg;
-                    document.body.prepend(errorDiv);
-                    
-                    // Clear the stored values
-                    sessionStorage.removeItem('oauth_success');
-                    sessionStorage.removeItem('oauth_error');
-                    sessionStorage.removeItem('oauth_realm_id');
-                }
-            </script>
-            """, height=0)
+            # Note: The JavaScript components.html block for handling OAuth parameters was removed 
+            # to avoid conflicts with the callback.py handler
             
             # Add info about required QuickBooks setup
             st.markdown("""
