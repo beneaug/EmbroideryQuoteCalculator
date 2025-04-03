@@ -1,0 +1,120 @@
+Below is a detailed analysis based on your GitHub repository (EmbroideryQuoteCalculator) along with some targeted recommendations and code modifications to help prevent reusing or delaying the authorization code exchange.
+
+⸻
+
+Analysis of the Problem
+
+The error message:
+
+{"error":"invalid_grant","error_description":"Invalid authorization code"}
+
+indicates that the authorization code passed to the token exchange endpoint is either:
+	1.	Already Used:
+– If your callback endpoint is invoked more than once (for example, via a browser refresh or duplicate request), the same code might be reused.
+	2.	Expired:
+– QuickBooks expects the code to be exchanged promptly (within about 10 minutes). Any delay (e.g., if the user takes too long or if the server logic doesn’t execute immediately) will render the code invalid.
+
+⸻
+
+Potential Problematic Snippets in the Repository
+
+Based on our review of the repository (particularly in app.py and your OAuth callback logic):
+	1.	Direct Token Exchange on GET Request:
+In your callback route you likely have something similar to:
+
+auth_code = request.args.get('code')
+realm_id = request.args.get('realmId')
+tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+
+Issue:
+– If this endpoint is revisited (e.g., via a browser refresh), it will reattempt to exchange the same auth_code, causing an invalid_grant error.
+
+	2.	Lack of a “Used” Flag or Redirect:
+If the code exchange is done and then the page renders a view that doesn’t redirect the user, reloading the page will resend the code.
+Issue:
+– Without invalidating or “flagging” the code as already processed, accidental duplicate requests will trigger the error.
+
+⸻
+
+Recommended Alternative Approaches
+
+1. Implement a Post-Redirect-Get Pattern
+
+After successfully exchanging the code, immediately store the tokens and then redirect the user. This ensures that a refresh on the destination page will not re-trigger the token exchange.
+
+Example:
+
+from flask import session, redirect, url_for, request, flash
+
+@app.route('/callback')
+def oauth_callback():
+    # Prevent duplicate processing
+    if session.get('qb_access_token'):
+        flash("Already connected to QuickBooks", "info")
+        return redirect(url_for('dashboard'))
+
+    auth_code = request.args.get('code')
+    realm_id = request.args.get('realmId')
+
+    if not auth_code:
+        flash("Missing authorization code.", "error")
+        return redirect(url_for('error_page'))
+
+    try:
+        # Exchange the code for tokens
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        session['qb_access_token'] = tokens.get('access_token')
+        session['qb_refresh_token'] = tokens.get('refresh_token')
+        
+        # Immediately redirect to prevent code reuse on refresh
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        app.logger.error("Error exchanging token: %s", e)
+        flash("Failed to exchange token.", "error")
+        return redirect(url_for('error_page'))
+
+2. Use a Session Flag to Mark the Code as Used
+
+If you prefer to keep the callback logic compact, you can add a flag to ensure that even if the URL is revisited, the token exchange isn’t attempted again.
+
+Example:
+
+@app.route('/callback')
+def oauth_callback():
+    # If we have already processed this callback, do nothing.
+    if session.get('code_used'):
+        return redirect(url_for('dashboard'))
+
+    auth_code = request.args.get('code')
+    realm_id = request.args.get('realmId')
+
+    if not auth_code:
+        return "Authorization code missing", 400
+
+    try:
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        session['qb_access_token'] = tokens.get('access_token')
+        session['qb_refresh_token'] = tokens.get('refresh_token')
+        session['code_used'] = True  # Mark this code as processed.
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        app.logger.error("Token exchange failed: %s", e)
+        return "Token exchange error", 500
+
+3. Ensure Prompt Execution of the Token Exchange
+	•	Time Sensitivity:
+Ensure that there is no significant delay between receiving the code and calling get_bearer_token(). Even manual debugging delays or unnecessary processing before the exchange can cause the code to expire.
+	•	Single Call:
+Double-check that the token exchange method isn’t inadvertently called more than once. Add logging (if not already present) to track when the authorization code is received and exchanged.
+
+⸻
+
+Final Thoughts
+
+By refactoring your OAuth callback endpoint to either redirect immediately after a successful token exchange or mark the code as used, you can prevent the re-submission of the authorization code. This should resolve the “invalid_grant” error you’re encountering.
+
+If you continue to see the error, please verify that:
+	•	The code isn’t cached or reused by any intermediary (e.g., browser auto-refresh, load balancer retries, etc.).
+	•	Your server logs confirm that the token exchange occurs only once per OAuth flow.
+
+These adjustments should help maintain a robust OAuth integration with QuickBooks. Feel free to share further details if you need additional guidance!
