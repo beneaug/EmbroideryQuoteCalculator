@@ -1306,16 +1306,27 @@ def get_quickbooks_auth_url():
             st.error("Missing QuickBooks client credentials. Please set them in the Admin settings.")
             return None
         
-        # Get Replit domain for redirect URI - now pointing to our Flask server on port 8000
+        # Get redirect URI from environment or database
+        # IMPORTANT: This redirect URI must match exactly with what's in the Intuit Developer dashboard
         import os
+        
+        # Check if we already have a redirect URI stored in the database
+        redirect_uri_from_db = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
         replit_domain = os.environ.get("REPLIT_DOMAINS", "")
-        if replit_domain:
+        
+        # First try using what's in the database since that's what the user has configured
+        if redirect_uri_from_db:
+            redirect_uri = redirect_uri_from_db
+            st.info(f"Using redirect URI from database: {redirect_uri}")
+        # Fall back to constructing from environment
+        elif replit_domain:
             replit_domain = replit_domain.split(',')[0].strip()
-            # Use the callback route on our Flask server
             redirect_uri = f"https://{replit_domain}/callback"
+            st.info(f"Using redirect URI from environment: {redirect_uri}")
         else:
-            # For local development, use port 8000 (Flask server)
-            redirect_uri = "http://localhost:8000/callback"
+            # Last resort fallback
+            redirect_uri = "https://embroideryquotecalculator.juliewoodland.repl.co/callback"
+            st.warning(f"Using hardcoded fallback redirect URI: {redirect_uri}")
         
         # Save the redirect URI
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)

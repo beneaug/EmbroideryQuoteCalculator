@@ -101,11 +101,26 @@ def oauth_callback():
         client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
         
         # Get redirect URI from environment or use the one from database
+        # IMPORTANT: This redirect URI must exactly match what's in the Intuit Developer dashboard
+        # The /callback path must be registered there
         replit_domain = os.environ.get("REPLIT_DOMAINS", "").split(',')[0].strip()
-        if replit_domain:
+        redirect_uri_from_db = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
+        
+        # First try using what's in the database since that's what the user has configured
+        if redirect_uri_from_db:
+            redirect_uri = redirect_uri_from_db
+            logger.info(f"Using redirect URI from database: {redirect_uri}")
+        # Fall back to constructing from environment
+        elif replit_domain:
             redirect_uri = f"https://{replit_domain}/callback"
+            logger.info(f"Using redirect URI from environment: {redirect_uri}")
         else:
-            redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
+            # Last resort fallback
+            redirect_uri = "https://embroideryquotecalculator.juliewoodland.repl.co/callback"
+            logger.info(f"Using hardcoded fallback redirect URI: {redirect_uri}")
+            
+        # Store the redirect URI in the database for future use
+        database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
         
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
         
