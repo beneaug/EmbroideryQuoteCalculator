@@ -1,0 +1,155 @@
+Below is an in‐depth analysis of the potential issues we see in your app (based on the logs and common pitfalls with Streamlit OAuth flows), along with concrete revisions you can try. Even though I don’t have direct access to the file contents, I’ve reconstructed the likely problematic snippets from your logs and prior context. The main issues appear to be:
+
+⸻
+
+1. Repeated Re-Initialization and Re-run Issues
+
+Problem:
+Streamlit re-executes your entire script on every user interaction. In your logs, you see many repeated messages like “Setting QB_CLIENT_ID”, “Setting QB_REFRESH_TOKEN”, etc. This suggests that the code to set your QuickBooks configuration is running every time the script is re-run.
+
+Impact:
+	•	Any logic that depends on one‑time execution (like reading query parameters from the URL and performing the token exchange) might run multiple times.
+	•	It resets your state over and over, so even if you successfully get tokens, subsequent re-runs may wipe them out.
+
+Revised Approach:
+	•	Use st.session_state to initialize your configuration only once.
+	•	Wrap the configuration setup in a check to see if it’s already been set.
+
+Example:
+
+import streamlit as st
+
+if "qb_config_initialized" not in st.session_state:
+    st.session_state.qb_client_id = "ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY"
+    st.session_state.qb_client_secret = "r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17"
+    st.session_state.qb_realm_id = "9341454425005330"
+    st.session_state.qb_access_token = ""
+    st.session_state.qb_refresh_token = ""
+    st.session_state.qb_redirect_uri = "https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback"
+    st.session_state.qb_environment = "sandbox"
+    st.session_state.qb_config_initialized = True
+
+This ensures your configuration is set only once per session.
+
+⸻
+
+2. OAuth Callback Processing and Token Exchange
+
+Problem:
+Your logs repeatedly show that the app is checking the authentication status and that the tokens are missing. This is likely because the OAuth callback processing (i.e. reading the query parameters and exchanging the code) is not being guarded against multiple executions. In a re-run environment like Streamlit, if the URL still has the code parameter, your code may re-run the token exchange—even after it succeeds—causing the code to be reused (and rejected by QBO).
+
+Revised Approach:
+	•	Use a session state flag (e.g., token_exchanged) to mark that you’ve already processed the callback.
+	•	Clear the query parameters (using st.experimental_set_query_params()) after the token exchange so that a page refresh does not trigger it again.
+
+Example:
+
+# Read query parameters from the URL
+params = st.experimental_get_query_params()
+
+if "code" in params and not st.session_state.get("token_exchanged", False):
+    auth_code = params["code"][0]
+    realm_id = params.get("realmId", [""])[0]
+    
+    st.write(f"Exchanging token with auth code {auth_code} and realm {realm_id}...")
+    
+    try:
+        # Perform the token exchange using your OAuth client
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        
+        # Save tokens in session state
+        st.session_state.qb_access_token = tokens.get("access_token")
+        st.session_state.qb_refresh_token = tokens.get("refresh_token")
+        st.session_state.qb_realm_id = realm_id
+        
+        # Mark that we've exchanged the token so we don't try again on re-run
+        st.session_state.token_exchanged = True
+        
+        # Clear the query parameters to avoid re-triggering this block
+        st.experimental_set_query_params()
+        
+        st.success("QuickBooks authentication successful!")
+    except Exception as e:
+        st.error(f"Error during token exchange: {e}")
+
+This snippet makes sure that once you exchange the token, subsequent re-runs do not reprocess the code parameter.
+
+⸻
+
+3. Persistent Storage vs. In‑Memory Session State
+
+Problem:
+If you’re running everything in one process and relying solely on session state, any process restart (or if you’re using separate servers) may “forget” the tokens.
+
+Revised Approach:
+	•	If you need persistence beyond a single session (or between your OAuth callback server and your Streamlit app), consider storing the tokens in a file or database.
+	•	For a simple Replit deployment, you might write the tokens to a JSON file. Then, read from that file in your Streamlit app.
+
+Example (File-based):
+
+OAuth Callback (Flask) – separate server:
+
+# oauth_callback.py (Flask server)
+from flask import Flask, request, redirect
+import json
+
+app = Flask(__name__)
+
+@app.route('/callback')
+def oauth_callback():
+    auth_code = request.args.get("code")
+    realm_id = request.args.get("realmId")
+    if not auth_code or not realm_id:
+        return "Missing code or realmId", 400
+
+    try:
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        with open("qb_tokens.json", "w") as f:
+            json.dump(tokens, f)
+        return redirect("https://your-streamlit-app-url")
+    except Exception as e:
+        return f"Error exchanging token: {e}", 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
+
+Streamlit App:
+
+import streamlit as st
+import json
+import os
+
+st.title("Embroidery Quoting Tool")
+
+if os.path.exists("qb_tokens.json"):
+    with open("qb_tokens.json", "r") as f:
+        tokens = json.load(f)
+    st.write("Token file contents:", tokens)
+    if tokens.get("refresh_token"):
+        st.success("Authenticated with QuickBooks!")
+    else:
+        st.error("Refresh token missing in token file.")
+else:
+    st.info("Not authenticated with QuickBooks.")
+    auth_url = auth_client.get_authorization_url()
+    st.markdown(f"[Connect to QuickBooks]({auth_url})")
+
+This approach decouples the OAuth flow from your Streamlit re-run cycle, giving you a more stable solution.
+
+⸻
+
+4. Final Checklist and Recommendations
+	•	Use Session State for One-Time Initialization:
+Initialize your QuickBooks settings only once per session.
+	•	Guard OAuth Callback Processing:
+Check for the presence of the code parameter and use a flag (token_exchanged) to ensure you process it only once.
+	•	Clear Query Parameters:
+Clear the URL query parameters after a successful token exchange.
+	•	Consider Persistent Storage:
+If your environment requires tokens to survive process restarts or if you’re running separate services, store tokens in a file or database and read them back in your Streamlit app.
+	•	Review Logs for Clues:
+Use logging (or st.write for debugging) to verify that the token exchange happens once and that your tokens are being saved and read correctly.
+
+⸻
+
+By revising your code with these principles and patterns, you should achieve a more stable and reliable OAuth flow that consistently obtains and persists the QuickBooks refresh token. If you have specific sections of your code you’d like further review on, feel free to share them, and we can dive deeper into those areas.

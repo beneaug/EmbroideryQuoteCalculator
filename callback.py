@@ -180,8 +180,17 @@ def direct_token_exchange(code, realm_id):
         logger.error(traceback.format_exc())
         return False, error_msg
 
+# Initialize session state to prevent duplicate processing
+if "token_exchange_attempted" not in st.session_state:
+    st.session_state.token_exchange_attempted = False
+    st.session_state.token_exchange_success = False
+    st.session_state.token_exchange_message = ""
+
 # Main callback handler logic
-if 'code' in params and 'realmId' in params:
+if 'code' in params and 'realmId' in params and not st.session_state.token_exchange_attempted:
+    # Flag that we've started processing this code to prevent duplicate processing
+    st.session_state.token_exchange_attempted = True
+    
     # Extract parameters from the callback URL
     code = params.get('code')
     realm_id = params.get('realmId')
@@ -202,7 +211,18 @@ if 'code' in params and 'realmId' in params:
     with st.spinner("Exchanging authorization code for tokens..."):
         success, message = direct_token_exchange(code, realm_id)
     
-    if success:
+    # Store the result in session state
+    st.session_state.token_exchange_success = success
+    st.session_state.token_exchange_message = message
+    
+    # Rerun to use the stored result instead of reprocessing
+    st.rerun()
+    
+elif 'code' in params and 'realmId' in params and st.session_state.token_exchange_attempted:
+    # We've already processed this code, show the stored result
+    st.title("QuickBooks Authentication")
+    
+    if st.session_state.token_exchange_success:
         # Show success message
         st.success("✅ Authentication successful!")
         st.balloons()
@@ -216,11 +236,18 @@ if 'code' in params and 'realmId' in params:
         
         # Button to return to main app
         if st.button("Return to Application", type="primary"):
+            # Clear both the query params and the session state
             st.query_params.clear()
+            if "token_exchange_attempted" in st.session_state:
+                del st.session_state.token_exchange_attempted
+            if "token_exchange_success" in st.session_state:
+                del st.session_state.token_exchange_success
+            if "token_exchange_message" in st.session_state:
+                del st.session_state.token_exchange_message
             st.rerun()
     else:
         # Show error message
-        st.error(f"❌ Authentication failed: {message}")
+        st.error(f"❌ Authentication failed: {st.session_state.token_exchange_message}")
         
         # Provide more information in an expander
         with st.expander("Error Details and Troubleshooting"):
@@ -240,11 +267,18 @@ if 'code' in params and 'realmId' in params:
             """)
             
             # Show specific error details
-            st.write(f"**Error message:** {message}")
+            st.write(f"**Error message:** {st.session_state.token_exchange_message}")
         
         # Button to try again
         if st.button("Try Again", type="primary"):
+            # Clear both the query params and the session state
             st.query_params.clear()
+            if "token_exchange_attempted" in st.session_state:
+                del st.session_state.token_exchange_attempted
+            if "token_exchange_success" in st.session_state:
+                del st.session_state.token_exchange_success
+            if "token_exchange_message" in st.session_state:
+                del st.session_state.token_exchange_message
             st.rerun()
             
 else:

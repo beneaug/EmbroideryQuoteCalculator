@@ -804,12 +804,16 @@ def get_quickbooks_client():
     This function implements a straightforward approach to QuickBooks API authentication
     using the intuit-oauth library and the python-quickbooks package.
     """
+    # Use session state to avoid redundant API calls on Streamlit reruns
+    if "qb_client" in st.session_state and "qb_auth_timestamp" in st.session_state:
+        # If we have a client in session state and it's less than 10 minutes old, use it
+        if time.time() - st.session_state.qb_auth_timestamp < 600:  # 10 minutes
+            return st.session_state.qb_client, None
+    
     if not QUICKBOOKS_AVAILABLE:
         return None, "QuickBooks libraries not available"
     
     # Get settings from database
-    print("\n===== QUICKBOOKS CLIENT INITIALIZATION =====")
-    print("Retrieving QuickBooks settings from database...")
     qb_settings = database.get_quickbooks_settings()
     
     # Check for required settings
@@ -818,7 +822,6 @@ def get_quickbooks_client():
     
     if missing_settings:
         missing_list = ', '.join(missing_settings)
-        print(f"Missing QuickBooks settings: {missing_list}")
         return None, f"Missing QuickBooks settings: {missing_list}"
     
     try:
@@ -977,6 +980,10 @@ def get_quickbooks_client():
         
         # Set the callback
         session_manager.callback = token_refresh_callback
+        
+        # Store client in session state to avoid redundant initialization
+        st.session_state.qb_client = client
+        st.session_state.qb_auth_timestamp = time.time()
         
         print("===== QUICKBOOKS CLIENT READY =====\n")
         return client, None
@@ -1293,6 +1300,10 @@ def get_quickbooks_auth_url():
     Returns:
         str: Authorization URL or None if error
     """
+    # Use session state to avoid regenerating the URL on every rerun
+    if "qb_auth_url" in st.session_state:
+        return st.session_state.qb_auth_url
+        
     try:
         # Get settings from database
         qb_settings = database.get_quickbooks_settings()
@@ -1331,11 +1342,6 @@ def get_quickbooks_auth_url():
         # Always update the redirect URI in the database to ensure consistency
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
         
-        # For verification, read back the saved URI
-        qb_settings = database.get_quickbooks_settings()
-        saved_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
-        print(f"Verified saved redirect URI: {saved_uri}")
-        
         # Initialize the OAuth client
         try:
             from intuitlib.client import AuthClient
@@ -1348,7 +1354,6 @@ def get_quickbooks_auth_url():
                 redirect_uri=redirect_uri,
                 environment=environment
             )
-            print(f"Created Intuit AuthClient with redirect to: {redirect_uri}")
             
             # Define scopes for the authorization request
             scopes = [
@@ -1359,11 +1364,9 @@ def get_quickbooks_auth_url():
             # Generate a unique state parameter for CSRF protection
             import uuid, time
             state = f"{str(uuid.uuid4())}_{int(time.time())}"
-            print(f"Generated state parameter: {state[:8]}...")
             
             # Get the authorization URL from the Intuit library
             auth_url = auth_client.get_authorization_url(scopes)
-            print(f"Got base authorization URL (truncated): {auth_url[:60]}...")
             
             # Add the state parameter to the URL
             from urllib.parse import urlparse, parse_qs, urlencode
@@ -1376,8 +1379,8 @@ def get_quickbooks_auth_url():
             query_string = urlencode(params, doseq=True)
             new_url = parsed_url._replace(query=query_string).geturl()
             
-            print(f"Final authorization URL (truncated): {new_url[:60]}...")
-            print("=== END OF QUICKBOOKS AUTH URL GENERATION ===")
+            # Store the URL in session state to avoid regenerating it
+            st.session_state.qb_auth_url = new_url
             
             return new_url
             
