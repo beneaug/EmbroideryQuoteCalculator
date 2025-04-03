@@ -23,6 +23,16 @@ import urllib.parse
 import database
 import logging
 import traceback
+import uuid
+import base64
+import os
+
+# Configure enhanced logging for OAuth process
+logger = logging.getLogger('app_oauth')
+logger.setLevel(logging.INFO)
+
+token_logger = logging.getLogger('qb_token_exchange')
+token_logger.setLevel(logging.INFO)
 
 # Import QuickBooks Libraries with better error handling
 QUICKBOOKS_AVAILABLE = False
@@ -1298,9 +1308,7 @@ def direct_token_exchange(code, realm_id):
     Exchange authorization code for tokens using direct API call
     and save using the dedicated database function.
     """
-    token_logger = logging.getLogger('qb_token_exchange')
-    token_logger.setLevel(logging.INFO)
-    
+    token_logger.info("=== STARTING DIRECT TOKEN EXCHANGE ===")
     token_logger.info(f"Starting direct token exchange for realm {realm_id} with code {code[:5] if code else 'None'}...")
     try:
         # Get QuickBooks settings from database
@@ -1309,92 +1317,120 @@ def direct_token_exchange(code, realm_id):
         client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
 
+        # --- Redirect URI Calculation and Logging ---
         # Construct redirect URI (Must match Intuit Dev Dashboard for the *app's base URL*)
         # Intuit redirects back here, adding the query params
-        import os
         replit_domain = os.environ.get("REPLIT_DOMAINS", "")
         if replit_domain:
             replit_domain = replit_domain.split(',')[0].strip()
-        # Use the base app URL as redirect URI, not the /callback path
-        redirect_uri = f"https://{replit_domain}/" if replit_domain else "http://localhost:5000/" 
+            redirect_uri = f"https://{replit_domain}/" # Base URL with trailing slash
+            token_logger.info(f"REPLIT_DOMAINS env var found: '{replit_domain}'")
+            token_logger.info(f"[Token Exchange] Calculated redirect_uri: '{redirect_uri}'")
+        else:
+            redirect_uri = "http://localhost:5000/" # Base URL with trailing slash
+            token_logger.warning(f"[Token Exchange] REPLIT_DOMAINS not found. Using fallback redirect_uri: '{redirect_uri}'")
+        # --- End Redirect URI Calculation ---
 
-        token_logger.info(f"Using client_id: {client_id[:5] if client_id else 'None'}...")
-        token_logger.info(f"Realm ID: {realm_id}")
-        token_logger.info(f"Using redirect_uri for exchange: {redirect_uri}")
-        token_logger.info(f"Environment: {environment}")
+        token_logger.info(f"[Token Exchange] Using client_id: {client_id[:5] if client_id else 'None'}...")
+        token_logger.info(f"[Token Exchange] Realm ID: {realm_id}")
+        token_logger.info(f"[Token Exchange] Environment: {environment}")
 
         token_endpoint = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-        token_logger.info(f"Making token exchange request to: {token_endpoint}")
+        token_logger.info(f"[Token Exchange] Making token exchange request to: {token_endpoint}")
 
         data = {
             'grant_type': 'authorization_code',
             'code': code,
             'redirect_uri': redirect_uri # Use the base app URL here
         }
+        token_logger.info(f"[Token Exchange] Data payload for token exchange: {data}")
 
-        import base64
         auth_header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
         headers = {
             'Authorization': f'Basic {auth_header}',
             'Accept': 'application/json',
             'Content-Type': 'application/x-www-form-urlencoded'
         }
+        token_logger.info(f"[Token Exchange] Headers (auth masked): {{'Authorization': 'Basic ***', 'Accept': '{headers['Accept']}', 'Content-Type': '{headers['Content-Type']}'}}")
 
-        response = requests.post(token_endpoint, data=data, headers=headers)
-        token_logger.info(f"Token response status: {response.status_code}")
-        
-        if response.status_code == 200:
-            token_data = response.json()
-            token_logger.info("Token exchange successful!")
+        try:
+            token_logger.info("[Token Exchange] Sending POST request for token exchange...")
+            response = requests.post(token_endpoint, data=data, headers=headers)
+            token_logger.info(f"[Token Exchange] Token response status: {response.status_code}")
+            
+            # Log response headers (but mask sensitive data)
+            resp_headers = dict(response.headers)
+            if 'Set-Cookie' in resp_headers:
+                resp_headers['Set-Cookie'] = '***MASKED***'
+            token_logger.info(f"[Token Exchange] Response headers: {resp_headers}")
+            
+            if response.status_code == 200:
+                token_data = response.json()
+                token_logger.info("[Token Exchange] Token exchange successful!")
 
-            access_token = token_data.get('access_token')
-            refresh_token = token_data.get('refresh_token')
-            expires_in = token_data.get('expires_in', 3600)
-            token_expiry = time.time() + expires_in
+                access_token = token_data.get('access_token')
+                refresh_token = token_data.get('refresh_token')
+                expires_in = token_data.get('expires_in', 3600)
+                token_expiry = time.time() + expires_in
 
-            # Log token details (partially masked)
-            if access_token:
-                token_logger.info(f"Access token received (first 5 chars): {access_token[:5]}...")
-                token_logger.info(f"Token expires in: {expires_in} seconds (at epoch {token_expiry})")
-            if refresh_token:
-                token_logger.info(f"Refresh token received (first 5 chars): {refresh_token[:5]}...")
+                # Log token details (partially masked)
+                if access_token:
+                    token_logger.info(f"[Token Exchange] Access token received (first 5 chars): {access_token[:5]}...")
+                    token_logger.info(f"[Token Exchange] Token expires in: {expires_in} seconds (at epoch {token_expiry})")
+                if refresh_token:
+                    token_logger.info(f"[Token Exchange] Refresh token received (first 5 chars): {refresh_token[:5]}...")
 
-            token_logger.info("Saving tokens using dedicated database function...")
+                token_logger.info("[Token Exchange] Saving tokens using dedicated database function...")
 
-            access_saved = database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
-            refresh_saved = database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
-            realm_saved = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                access_saved = database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
+                refresh_saved = database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
+                realm_saved = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
 
-            token_logger.info(f"Database save results: Access={access_saved}, Refresh={refresh_saved}, Realm={realm_saved}")
+                token_logger.info(f"[Token Exchange] Database save results: Access={access_saved}, Refresh={refresh_saved}, Realm={realm_saved}")
 
-            if access_saved and refresh_saved and realm_saved:
-                 token_logger.info("Tokens and Realm ID successfully saved and verified.")
-                 return True, "Authentication successful"
+                if access_saved and refresh_saved and realm_saved:
+                     token_logger.info("[Token Exchange] Tokens and Realm ID successfully saved and verified.")
+                     token_logger.info("=== END OF DIRECT TOKEN EXCHANGE ===")
+                     return True, "Authentication successful"
+                else:
+                     errors = []
+                     if not access_saved: errors.append("Access Token")
+                     if not refresh_saved: errors.append("Refresh Token")
+                     if not realm_saved: errors.append("Realm ID")
+                     error_detail = f"Token/Realm saving failed for: {', '.join(errors)}"
+                     token_logger.error(f"[Token Exchange] {error_detail}")
+                     token_logger.info("=== END OF DIRECT TOKEN EXCHANGE WITH ERRORS ===")
+                     return False, error_detail
+
             else:
-                 errors = []
-                 if not access_saved: errors.append("Access Token")
-                 if not refresh_saved: errors.append("Refresh Token")
-                 if not realm_saved: errors.append("Realm ID")
-                 error_detail = f"Token/Realm saving failed for: {', '.join(errors)}"
-                 token_logger.error(error_detail)
-                 return False, error_detail
+                error_msg = f"Token exchange failed: {response.status_code}"
+                token_logger.error(f"[Token Exchange] {error_msg}")
+                # Attempt to parse error details from response
+                try:
+                    response_text = response.text
+                    token_logger.error(f"[Token Exchange] Response text: {response_text}")
+                    error_details = response.json()
+                    error_desc = error_details.get('error_description', response_text)
+                    token_logger.error(f"[Token Exchange] Error details: {error_details}")
+                    error_msg = f"Token exchange failed: {response.status_code} - {error_desc}"
+                except Exception as json_err:
+                    token_logger.error(f"[Token Exchange] Failed to parse error response: {str(json_err)}")
+                    token_logger.error(f"[Token Exchange] Raw response text: {response.text[:500]}")
+                token_logger.info("=== END OF DIRECT TOKEN EXCHANGE WITH ERRORS ===")
+                return False, error_msg
 
-        else:
-            error_msg = f"Token exchange failed: {response.status_code} - {response.text}"
-            token_logger.error(error_msg)
-            # Attempt to parse error details from response
-            try:
-                error_details = response.json()
-                error_desc = error_details.get('error_description', response.text)
-                error_msg = f"Token exchange failed: {response.status_code} - {error_desc}"
-            except:
-                pass # Stick with the original error message if JSON parsing fails
+        except requests.RequestException as req_err:
+            error_msg = f"Request error in token exchange: {str(req_err)}"
+            token_logger.error(f"[Token Exchange] {error_msg}")
+            token_logger.error(traceback.format_exc())
+            token_logger.info("=== END OF DIRECT TOKEN EXCHANGE WITH REQUEST ERROR ===")
             return False, error_msg
 
     except Exception as e:
         error_msg = f"Unexpected error in token exchange: {str(e)}"
-        token_logger.error(error_msg)
+        token_logger.error(f"[Token Exchange] {error_msg}")
         token_logger.error(traceback.format_exc())
+        token_logger.info("=== END OF DIRECT TOKEN EXCHANGE WITH UNEXPECTED ERROR ===")
         return False, error_msg
 
 def get_quickbooks_auth_url():
@@ -1408,12 +1444,13 @@ def get_quickbooks_auth_url():
     """
     # Use session state to avoid regenerating the URL on every rerun
     if "qb_auth_url" in st.session_state:
+        logger.info("Returning cached authorization URL from session state")
         return st.session_state.qb_auth_url
         
+    logger.info("=== GENERATING QUICKBOOKS AUTH URL ===")
     try:
         # Get settings from database
         qb_settings = database.get_quickbooks_settings()
-        print("=== GENERATING QUICKBOOKS AUTH URL ===")
         
         # Get client credentials
         client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
@@ -1423,13 +1460,13 @@ def get_quickbooks_auth_url():
         # Verify client credentials are set
         if not client_id or not client_secret:
             error_msg = "Missing QuickBooks client credentials. Please set them in the Admin settings."
-            print(error_msg)
+            logger.error(error_msg)
             st.error(error_msg)
             return None
         
-        # Get redirect URI - CRITICAL for OAuth flow
-        import os
+        logger.info(f"Using client_id: {client_id[:5]}... and environment: {environment}")
         
+        # --- Redirect URI Calculation and Logging ---
         # IMPORTANT: For Replit, always use the actual Replit domain
         # But use the base URL instead of the /callback path
         replit_domain = os.environ.get("REPLIT_DOMAINS", "")
@@ -1439,14 +1476,16 @@ def get_quickbooks_auth_url():
             replit_domain = replit_domain.split(',')[0].strip()
             # Set the callback URL to use this domain's base URL (note the trailing slash)
             redirect_uri = f"https://{replit_domain}/"
-            print(f"Using base app URL as redirect URI: {redirect_uri}")
+            logger.info(f"REPLIT_DOMAINS env var found: '{replit_domain}'")
+            logger.info(f"[Auth URL Gen] Calculated redirect_uri: '{redirect_uri}'")
         else:
             # Fallback for local development (should never happen in production)
             redirect_uri = "http://localhost:5000/"
-            print(f"WARNING: Using local fallback redirect URI: {redirect_uri}")
+            logger.warning(f"[Auth URL Gen] REPLIT_DOMAINS not found. Using fallback redirect_uri: '{redirect_uri}'")
         
         # Always update the redirect URI in the database to ensure consistency
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
+        logger.info(f"Updated redirect_uri in database: {redirect_uri}")
         
         # Initialize the OAuth client
         try:
@@ -1461,6 +1500,8 @@ def get_quickbooks_auth_url():
                 environment=environment
             )
             
+            logger.info(f"[Auth URL Gen] AuthClient initialized with redirect_uri: '{auth_client.redirect_uri}'")
+            
             # Define scopes for the authorization request
             scopes = [
                 Scopes.ACCOUNTING,  # For financial data access
@@ -1468,39 +1509,49 @@ def get_quickbooks_auth_url():
             ]
             
             # Generate a unique state parameter for CSRF protection
-            import uuid, time
             state = f"{str(uuid.uuid4())}_{int(time.time())}"
+            logger.info(f"[Auth URL Gen] Generated state parameter: {state[:8]}...")
             
             # Get the authorization URL from the Intuit library
-            auth_url = auth_client.get_authorization_url(scopes)
+            auth_url_base = auth_client.get_authorization_url(scopes)
+            logger.info(f"[Auth URL Gen] Base URL from AuthClient.get_authorization_url(): '{auth_url_base}'")
             
             # Add the state parameter to the URL
             from urllib.parse import urlparse, parse_qs, urlencode
             
-            parsed_url = urlparse(auth_url)
+            parsed_url = urlparse(auth_url_base)
             params = parse_qs(parsed_url.query)
             params['state'] = [state]
             
+            # Explicitly check/set the redirect_uri param before encoding
+            original_redirect = params.get('redirect_uri', [''])[0]
+            if original_redirect != redirect_uri:
+                logger.warning(f"[Auth URL Gen] Mismatch in redirect_uri! Original: '{original_redirect}', Our calculated: '{redirect_uri}'")
+                # Ensure it uses our calculated one
+                params['redirect_uri'] = [redirect_uri]
+            
             # Reconstruct the URL with our added state parameter
             query_string = urlencode(params, doseq=True)
-            new_url = parsed_url._replace(query=query_string).geturl()
+            final_auth_url = parsed_url._replace(query=query_string).geturl()
+            
+            logger.info(f"[Auth URL Gen] Final Auth URL Query Params: {params}")
+            logger.info(f"[Auth URL Gen] Final Auth URL (first 200 chars): {final_auth_url[:200]}")
+            logger.info("=== END OF QUICKBOOKS AUTH URL GENERATION ===")
             
             # Store the URL in session state to avoid regenerating it
-            st.session_state.qb_auth_url = new_url
+            st.session_state.qb_auth_url = final_auth_url
             
-            return new_url
+            return final_auth_url
             
         except ImportError as imp_err:
             error_msg = f"Failed to import QuickBooks libraries: {str(imp_err)}"
-            print(error_msg)
+            logger.error(error_msg)
             st.error(error_msg)
             return None
         
     except Exception as e:
-        import traceback
         error_msg = f"Error generating QuickBooks auth URL: {str(e)}"
-        print(error_msg)
-        print(traceback.format_exc())
+        logger.error(error_msg, exc_info=True)
         st.error(f"Error connecting to QuickBooks: {str(e)}")
         return None
 
@@ -1545,10 +1596,10 @@ def main():
             st.success(f"✅ Authentication Successful! {message}")
             st.balloons()
             st.info("Redirecting back to the application...")
-            # Clear query parameters and rerun to show the main app state
-            time.sleep(2)  # Give user time to see the message
-            st.query_params.clear()
-            st.rerun()
+            # We'll use a button instead of automatic redirect to avoid time import issues
+            if st.button("Continue to Application"):
+                st.query_params.clear()
+                st.rerun()
         else:
             st.error(f"❌ Authentication Failed: {message}")
             st.warning("Please check your QuickBooks API settings and try connecting again from the Admin tab.")
