@@ -1427,10 +1427,41 @@ def main():
             auth_code = query_params['code'][0]
             realm_id = query_params['realmId'][0]
             
+            # Log the authorization code (first 10 characters only for security)
+            code_preview = auth_code[:10] + "..." if len(auth_code) > 10 else auth_code
+            print(f"Received authorization code: {code_preview} at time {time.time()}")
+            print(f"Received realm ID: {realm_id}")
+            
             # Create a unique identifier for this authorization code
             # This is crucial to prevent duplicate processing
             code_hash = hashlib.md5(auth_code.encode()).hexdigest()
             auth_state_path = f".auth_state_qb_auth_{code_hash}.tmp"
+            
+            # Also store in session state as a double-check mechanism
+            st.session_state['processed_auth_codes'] = st.session_state.get('processed_auth_codes', {})
+            
+            # Check if this code has already been processed
+            if code_hash in st.session_state['processed_auth_codes']:
+                print(f"Authorization code was already processed at: {st.session_state['processed_auth_codes'][code_hash]}")
+                st.error("This authorization code has already been processed in this session.")
+                st.warning("QuickBooks authorization codes can only be used once.")
+                
+                if st.button("Start New Authorization", key="new_auth_from_session_duplicate"):
+                    st.query_params.clear()
+                    auth_url = get_quickbooks_auth_url()
+                    if auth_url:
+                        st.markdown(f"""
+                        <script>
+                            window.top.location.href = '{auth_url}';
+                        </script>
+                        """, unsafe_allow_html=True)
+                    st.rerun()
+                    
+                if st.button("Continue Without QuickBooks", key="continue_without_qb_session_duplicate"):
+                    st.query_params.clear()
+                    st.rerun()
+                    
+                st.stop()
         except Exception as init_error:
             st.error(f"Failed to initialize QuickBooks authentication: {str(init_error)}")
             if st.button("Return to Application", key="return_from_init_error"):
@@ -1469,10 +1500,15 @@ def main():
         
         # Create marker file to prevent duplicate processing
         with open(auth_state_path, 'w') as f:
-            f.write(f"Processing QuickBooks auth code at {time.time()}")
+            current_time = time.time()
+            f.write(f"Processing QuickBooks auth code at {current_time}")
+            
+        # Also track this code in session state
+        st.session_state['processed_auth_codes'][code_hash] = current_time
         
         # ----- STEP 5: EXCHANGE AUTH CODE FOR TOKENS -----
         st.info("Exchanging authorization code for access tokens...")
+        print(f"Attempting to exchange authorization code for tokens at {current_time}")
         try:
             # Initialize the auth client
             auth_client = AuthClient(
@@ -1483,7 +1519,9 @@ def main():
             )
             
             # Exchange code for tokens - this is where most errors occur
+            print(f"Calling get_bearer_token() with auth_code (first 10 chars): {auth_code[:10]}...")
             auth_client.get_bearer_token(auth_code)
+            print("Token exchange successful")
             
             # Save tokens and realm ID to database
             database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)

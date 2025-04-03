@@ -1,0 +1,101 @@
+Below is an overview of what I found in the repository along with some recommendations to help prevent using an authorization code more than once or after it has expired. (Note: This analysis is based on the key files and code patterns in your repository, particularly around the OAuth callback logic.)
+
+⸻
+
+Observations in Your Repository
+	1.	Callback Logic in app.py
+In your app.py (around line 1551, where you call:
+
+auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+
+) it appears that this endpoint is responsible for exchanging the authorization code for tokens. However, if a user reloads the callback URL (or if the request is somehow re-fired), the same code will be reused—resulting in an invalid_grant error.
+
+	2.	Potential for Duplicate Requests
+Since the token exchange is tied directly to a GET callback, if the user refreshes the page or if the route is cached by the browser, the code might be reused. This is one of the main culprits for “already used” or “expired” codes.
+
+⸻
+
+Recommended Approaches & Code Alternatives
+
+1. Implement a Post-Redirect-Get Pattern
+
+After a successful token exchange, immediately redirect the user to another page so that if they refresh, they are not resubmitting the authorization code. For example:
+
+from flask import session, redirect, url_for, request, flash
+
+@app.route('/callback')
+def oauth_callback():
+    # If tokens are already in the session, do not attempt to exchange again.
+    if session.get('qb_access_token'):
+        flash("Already connected to QuickBooks", "info")
+        return redirect(url_for('dashboard'))
+
+    auth_code = request.args.get('code')
+    realm_id = request.args.get('realmId')
+    
+    if not auth_code:
+        flash("Missing authorization code.", "error")
+        return redirect(url_for('error_page'))
+
+    try:
+        # Exchange the authorization code for tokens
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        session['qb_access_token'] = tokens.get('access_token')
+        session['qb_refresh_token'] = tokens.get('refresh_token')
+        
+        # Immediately redirect after storing tokens
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        # Log the error and show a friendly message
+        app.logger.error("Error exchanging token: %s", e)
+        flash("Failed to exchange token.", "error")
+        return redirect(url_for('error_page'))
+
+Key Points:
+	•	Check for an existing token: Before attempting to exchange the code, check if a token already exists in the session. This prevents duplicate exchanges.
+	•	Immediate Redirect: After exchanging the code, store the tokens and redirect immediately. This follows the POST-Redirect-GET pattern and prevents a refresh from triggering another token exchange.
+	•	Error Handling: Log errors and provide user feedback if the exchange fails.
+
+2. Store a “Used” Flag in the Session
+
+If you’d prefer to keep the callback endpoint more “stateless” in terms of its flow, you can store a flag in the session once the code has been used. For example:
+
+@app.route('/callback')
+def oauth_callback():
+    # Prevent duplicate token exchange
+    if session.get('code_used'):
+        return redirect(url_for('dashboard'))
+    
+    auth_code = request.args.get('code')
+    realm_id = request.args.get('realmId')
+
+    if not auth_code:
+        return "Authorization code missing", 400
+
+    try:
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        session['qb_access_token'] = tokens.get('access_token')
+        session['qb_refresh_token'] = tokens.get('refresh_token')
+        session['code_used'] = True  # Mark the code as used
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        app.logger.error("Token exchange failed: %s", e)
+        return "Token exchange error", 500
+
+Key Points:
+	•	Session Flag: The session['code_used'] flag ensures that even if the user revisits or refreshes the callback URL, the token exchange isn’t attempted again.
+	•	Error Handling and Logging: As before, include logging for better debugging if issues persist.
+
+3. Review OAuth Flow Timing
+
+Make sure that once the authorization code is generated:
+	•	No Unnecessary Delays: The code is immediately exchanged—keeping well within the 10‑minute limit.
+	•	No Duplicate Calls: Double-check that no client-side code (or browser behavior) is causing multiple GET requests to the callback endpoint.
+
+⸻
+
+Final Thoughts
+
+By restructuring your callback endpoint to immediately store tokens and redirect (or by using a session flag), you should be able to avoid both reusing an authorization code and running into timing issues. This pattern is a common best practice when dealing with OAuth flows and should mitigate the invalid_grant errors you’re seeing.
+
+If you need further assistance or have additional context (such as other parts of the OAuth setup), feel free to share more details!
