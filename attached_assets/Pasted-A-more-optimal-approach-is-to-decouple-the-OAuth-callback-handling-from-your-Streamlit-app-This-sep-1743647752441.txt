@@ -1,0 +1,97 @@
+A more optimal approach is to decouple the OAuth callback handling from your Streamlit app. This separation avoids Streamlit’s re-run behavior, which can repeatedly trigger the OAuth token exchange and cause issues. Here’s a high-level outline of a stable, simple solution compatible with Replit:
+
+⸻
+
+1. Run a Dedicated OAuth Callback Server
+	•	Use a Lightweight Framework:
+Create a separate Flask (or FastAPI) server solely responsible for handling the OAuth callback. This server listens on its own port (e.g., port 8000) and exchanges the authorization code for tokens.
+	•	Single Responsibility:
+The callback server processes the incoming code, performs the token exchange, and then stores the tokens (for example, in a JSON file, a simple database, or another secure store).
+	•	Redirect Back:
+After the token exchange, the server immediately redirects the user back to your Streamlit app.
+
+⸻
+
+2. Modify Your Streamlit App to Use Persistent Tokens
+	•	Load Tokens on Startup:
+The Streamlit app simply checks for the presence of the tokens (by reading from the file or database where the OAuth server saved them).
+	•	Display Authentication Status:
+If tokens are available, the app can proceed with QuickBooks API calls. If not, it displays a “Connect to QuickBooks” link that directs users to the OAuth flow.
+	•	Avoid Re-run Pitfalls:
+By isolating the OAuth logic to the separate server, your Streamlit app no longer needs to worry about re-processing the OAuth callback on every script re-run.
+
+⸻
+
+3. Example Implementation
+
+A. OAuth Callback Server (Flask)
+
+# oauth_callback.py
+from flask import Flask, request, redirect
+import json
+# Assume auth_client is configured for QuickBooks OAuth
+
+app = Flask(__name__)
+
+@app.route('/callback')
+def oauth_callback():
+    auth_code = request.args.get("code")
+    realm_id = request.args.get("realmId")
+    if not auth_code or not realm_id:
+        return "Missing authorization code or realmId", 400
+
+    try:
+        # Exchange the authorization code for tokens
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        
+        # Save tokens to a file (or other persistent storage)
+        with open("qb_tokens.json", "w") as f:
+            json.dump(tokens, f)
+        
+        # Redirect back to the Streamlit app
+        return redirect("https://your-streamlit-app-url")
+    except Exception as e:
+        return f"Error during token exchange: {e}", 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
+
+Note: Replace "https://your-streamlit-app-url" with the actual public URL of your Streamlit app. Make sure the callback URL in your Intuit Developer settings points to this Flask server endpoint.
+
+B. Streamlit App
+
+# app.py (Streamlit)
+import streamlit as st
+import json
+import os
+
+st.title("Embroidery Quoting Tool")
+
+# Check if the token file exists
+if os.path.exists("qb_tokens.json"):
+    with open("qb_tokens.json", "r") as f:
+        tokens = json.load(f)
+    st.success("Authenticated with QuickBooks!")
+    st.write("Access Token:", tokens.get("access_token"))
+    # Proceed with your app logic using the tokens...
+else:
+    st.info("Not authenticated with QuickBooks.")
+    # Generate the QuickBooks authorization URL
+    auth_url = auth_client.get_authorization_url()
+    st.markdown(f"[Connect to QuickBooks]({auth_url})")
+
+
+
+⸻
+
+4. Deployment on Replit
+	•	Multi-Process Setup:
+Replit supports running multiple processes. Run your Flask callback server on port 8000 and your Streamlit app on port 5000. Update your Intuit settings so the callback URI points to your Flask server (e.g., https://<your-replit-domain>:8000/callback).
+	•	Persistent Storage:
+For this simple example, the tokens are stored in a file (qb_tokens.json). In a production scenario, consider using a database or a secure storage mechanism.
+
+⸻
+
+Final Thoughts
+
+By separating the OAuth callback logic into its own dedicated service, you avoid the pitfalls of Streamlit’s full-script re-runs that can lead to multiple, conflicting token exchange attempts. This decoupling not only simplifies your Streamlit code but also makes the overall OAuth flow more stable and easier to maintain on Replit.
