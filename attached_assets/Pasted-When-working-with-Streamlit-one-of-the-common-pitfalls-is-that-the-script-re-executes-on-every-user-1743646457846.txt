@@ -1,0 +1,84 @@
+When working with Streamlit, one of the common pitfalls is that the script re-executes on every user interaction, which can inadvertently trigger your token exchange multiple times. This repeated execution can cause the same authorization code to be used more than once, resulting in the “invalid_grant” error.
+
+Below are some recommendations and a refined example on how to structure your Streamlit code to ensure that the token exchange is performed exactly once:
+
+⸻
+
+Key Recommendations
+	1.	Use Session State Flags
+Use st.session_state to record whether the token exchange has already been completed. This prevents subsequent re-runs (for example, due to page refreshes) from reusing the same authorization code.
+	2.	Clear Query Parameters Immediately After Exchange
+After a successful token exchange, clear the query parameters using st.experimental_set_query_params() so that a refresh won’t trigger the exchange again.
+	3.	Log and Verify Execution
+Add logging or status messages to confirm that the token exchange is only happening once. This is especially important in a re-run environment like Streamlit.
+	4.	Ensure Redirect URI Consistency
+Make sure that the callback URI you use in your Streamlit app exactly matches the one registered in your Intuit Developer Portal. (Your logs show that this is set correctly for your Replit domain.)
+
+⸻
+
+Example Streamlit OAuth Callback Handling
+
+Below is an example snippet that demonstrates a safe and robust approach to handling the OAuth callback in Streamlit:
+
+import streamlit as st
+
+# Initialize token exchange flag in session state if not present.
+if "token_exchanged" not in st.session_state:
+    st.session_state.token_exchanged = False
+
+# Get query parameters from the URL.
+params = st.experimental_get_query_params()
+
+# If an authorization code is present and we haven't already processed it:
+if "code" in params and not st.session_state.token_exchanged:
+    auth_code = params["code"][0]
+    realm_id = params.get("realmId", [None])[0]
+    
+    st.write(f"Starting token exchange with auth code {auth_code} and realm {realm_id}...")
+    
+    try:
+        # Attempt to exchange the authorization code for tokens.
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        
+        # Save tokens in session state.
+        st.session_state.qb_access_token = tokens.get("access_token")
+        st.session_state.qb_refresh_token = tokens.get("refresh_token")
+        st.session_state.qb_realm_id = realm_id
+        
+        # Set the flag to avoid reprocessing the same code.
+        st.session_state.token_exchanged = True
+        
+        # Clear the query parameters to prevent re-triggering on refresh.
+        st.experimental_set_query_params()
+        
+        st.success("QuickBooks authentication successful!")
+    except Exception as e:
+        st.error(f"QuickBooks Authentication Error: {e}")
+
+# Check authentication status and display accordingly.
+if st.session_state.get("qb_access_token"):
+    st.write("You are authenticated with QuickBooks!")
+else:
+    # Generate your QuickBooks authorization URL here.
+    auth_url = auth_client.get_authorization_url()
+    st.markdown(f"[Connect to QuickBooks]({auth_url})")
+
+
+
+⸻
+
+How This Helps
+	•	Single Token Exchange:
+The if "code" in params and not st.session_state.token_exchanged: condition ensures that the token exchange is only attempted once, even if Streamlit re-runs the script multiple times.
+	•	Query Parameter Clearing:
+Calling st.experimental_set_query_params() with no parameters clears the URL query, so refreshing the page won’t re-trigger the token exchange.
+	•	Immediate Feedback:
+The status messages (e.g., st.success and st.error) help you track the flow and confirm that the token exchange is only performed once per OAuth flow.
+
+⸻
+
+Final Thoughts
+
+This approach leverages Streamlit’s session state and experimental query parameter functions to mimic the “POST-Redirect-GET” pattern found in traditional web frameworks like Flask. It’s optimized for the re-run behavior of Streamlit while ensuring that your QuickBooks OAuth flow remains robust and that each authorization code is used only once.
+
+Give this refined pattern a try, and it should help resolve the “invalid authorization code” error by preventing multiple token exchanges with the same code.
