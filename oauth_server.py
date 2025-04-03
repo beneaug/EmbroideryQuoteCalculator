@@ -14,12 +14,11 @@ This approach isolates the token exchange process from Streamlit's re-execution 
 import os
 import time
 import logging
+import database
+import json
 from flask import Flask, request, redirect
 from intuitlib.client import AuthClient
 from intuitlib.exceptions import AuthClientError
-
-# Import database functions to store tokens
-import database
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +41,15 @@ def oauth_callback():
     Handle the OAuth 2.0 callback from Intuit/QuickBooks.
     This endpoint receives the authorization code and exchanges it for tokens.
     """
+    logger.info("=====================================================")
+    logger.info("OAUTH CALLBACK RECEIVED")
+    logger.info("=====================================================")
+    
+    # Log request details in a more structured way
+    logger.info(f"Request URL: {request.url}")
+    logger.info(f"Request Args: {dict(request.args)}")
+    logger.info(f"Request Headers: {dict(request.headers)}")
+    
     # Check for error response
     if 'error' in request.args:
         error = request.args.get('error')
@@ -66,6 +74,25 @@ def oauth_callback():
     # Log the callback 
     code_preview = auth_code[:5] + "..." if auth_code else "None"
     logger.info(f"Received QuickBooks callback with code {code_preview} and realm {realm_id}")
+    
+    # Log the environment information
+    logger.info(f"REPLIT_DOMAINS: {os.environ.get('REPLIT_DOMAINS', 'Not set')}")
+    logger.info(f"Current directory: {os.getcwd()}")
+    logger.info(f"User info: {os.environ.get('REPL_OWNER', 'Not set')}")
+    logger.info(f"Repl ID: {os.environ.get('REPL_ID', 'Not set')}")
+    logger.info(f"Environment: {os.environ.get('REPL_ENVIRONMENT', 'Not set')}")
+    
+    # Log the database connection status
+    try:
+        # Check the database connection
+        conn = database.get_connection()
+        if conn:
+            logger.info("Database connection successful")
+            conn.close()
+        else:
+            logger.error("Failed to connect to database")
+    except Exception as db_err:
+        logger.error(f"Database connection error: {str(db_err)}")
     
     try:
         # Get QuickBooks settings from database

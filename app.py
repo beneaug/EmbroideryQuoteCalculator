@@ -3496,6 +3496,169 @@ def main():
             For sandbox testing, you'll need to create these items in your sandbox company.
             """)
             
+        # QuickBooks OAuth Diagnostics
+        with st.expander("QuickBooks OAuth Diagnostics (Advanced)"):
+            st.subheader("QuickBooks Connection Diagnostics")
+            
+            # Display current token status
+            st.markdown("#### Token Status")
+            
+            qb_settings = database.get_quickbooks_settings()
+            
+            # Test columns for better layout
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Client Configuration:**")
+                has_client_id = bool(qb_settings.get('QB_CLIENT_ID', {}).get('value', ''))
+                has_client_secret = bool(qb_settings.get('QB_CLIENT_SECRET', {}).get('value', ''))
+                has_realm_id = bool(qb_settings.get('QB_REALM_ID', {}).get('value', ''))
+                has_redirect_uri = bool(qb_settings.get('QB_REDIRECT_URI', {}).get('value', ''))
+                
+                client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
+                client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
+                realm_id = qb_settings.get('QB_REALM_ID', {}).get('value', '')
+                redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
+                environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+                
+                st.markdown(f"- Client ID: {'✅ Present' if has_client_id else '❌ Missing'}")
+                if has_client_id:
+                    st.code(f"{client_id[:10]}...", language=None)
+                    
+                st.markdown(f"- Client Secret: {'✅ Present' if has_client_secret else '❌ Missing'}")
+                if has_client_secret:
+                    st.code(f"{client_secret[:5]}...", language=None)
+                    
+                st.markdown(f"- Realm ID: {'✅ Present' if has_realm_id else '❌ Missing'}")
+                if has_realm_id:
+                    st.code(realm_id, language=None)
+                    
+                st.markdown(f"- Redirect URI: {'✅ Present' if has_redirect_uri else '❌ Missing'}")
+                if has_redirect_uri:
+                    st.code(redirect_uri, language=None)
+                    
+                st.markdown(f"- Environment: {environment}")
+            
+            with col2:
+                st.write("**Token Information:**")
+                
+                access_token = qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', '')
+                refresh_token = qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', '')
+                token_expiry = qb_settings.get('QB_ACCESS_TOKEN', {}).get('token_expires_at')
+                
+                st.markdown(f"- Access Token: {'✅ Present' if access_token else '❌ Missing'}")
+                if access_token:
+                    st.code(f"{access_token[:15]}...", language=None)
+                    
+                st.markdown(f"- Refresh Token: {'✅ Present' if refresh_token else '❌ Missing'}")
+                if refresh_token:
+                    st.code(f"{refresh_token[:15]}...", language=None)
+                    
+                # Check expiration
+                if token_expiry:
+                    import time
+                    current_time = time.time()
+                    expiry_time = float(token_expiry) if isinstance(token_expiry, str) else token_expiry
+                    
+                    time_left = expiry_time - current_time
+                    minutes_left = time_left / 60
+                    
+                    if time_left > 0:
+                        st.markdown(f"- Token Expires: ✅ Valid for {minutes_left:.1f} minutes")
+                    else:
+                        st.markdown(f"- Token Expires: ❌ Expired {abs(minutes_left):.1f} minutes ago")
+                else:
+                    st.markdown("- Token Expires: ❓ Unknown")
+            
+            # Connection test
+            st.markdown("#### Connection Test")
+            if st.button("Test QuickBooks Connection"):
+                with st.spinner("Testing connection to QuickBooks..."):
+                    # Get client and connection status
+                    qb_client, qb_error = get_quickbooks_client()
+                    
+                    if qb_client:
+                        try:
+                            # Try to fetch the company info as a simple test
+                            from quickbooks.objects.company import CompanyInfo
+                            company_info = CompanyInfo.all(qb=qb_client)[0]
+                            
+                            st.success(f"✅ Successfully connected to QuickBooks!")
+                            st.json({
+                                "company_name": company_info.CompanyName,
+                                "legal_name": getattr(company_info, "LegalName", ""),
+                                "email": getattr(company_info, "Email", {}).get("Address", ""),
+                                "web_site": getattr(company_info, "WebSite", {}).get("URI", ""),
+                                "country": getattr(company_info, "Country", "")
+                            })
+                        except Exception as e:
+                            st.error(f"❌ Connection failed during API request: {str(e)}")
+                    else:
+                        st.error(f"❌ Connection failed: {qb_error}")
+            
+            # Force token refresh
+            st.markdown("#### Manual Actions")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Force Token Refresh"):
+                    if not refresh_token:
+                        st.error("Cannot refresh - no refresh token available")
+                    else:
+                        with st.spinner("Manually refreshing token..."):
+                            try:
+                                # Create auth client
+                                from intuitlib.client import AuthClient
+                                
+                                auth_client = AuthClient(
+                                    client_id=client_id,
+                                    client_secret=client_secret,
+                                    environment=environment,
+                                    redirect_uri=redirect_uri
+                                )
+                                
+                                # Refresh the token
+                                auth_client.refresh(refresh_token=refresh_token)
+                                
+                                # Update with new tokens
+                                import time
+                                new_access_token = auth_client.access_token
+                                new_refresh_token = auth_client.refresh_token
+                                token_expiration = time.time() + auth_client.expires_in
+                                
+                                # Save to database
+                                database.update_quickbooks_token('QB_ACCESS_TOKEN', new_access_token, token_expiration)
+                                database.update_quickbooks_token('QB_REFRESH_TOKEN', new_refresh_token)
+                                
+                                st.success("Token refreshed successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error refreshing token: {str(e)}")
+            
+            with col2:
+                if st.button("Reset Authorization"):
+                    with st.spinner("Resetting QuickBooks authorization..."):
+                        database.reset_quickbooks_auth()
+                        st.warning("QuickBooks authorization has been reset")
+                        st.info("You will need to re-authorize with QuickBooks")
+                        st.rerun()
+            
+            # Technical Details
+            st.markdown("#### OAuth Flow Diagram")
+            st.markdown("""
+            1. **App Generates Auth URL** → User clicks "Connect to QuickBooks"
+            2. **User Authenticates** → QuickBooks redirects to `/callback` with auth code
+            3. **Flask Server Intercepts** → Exchanges auth code for tokens 
+            4. **Tokens Saved to Database** → Access and refresh tokens stored
+            5. **Redirect to App** → User returned to app with success message
+            
+            **Common Errors:**
+            - Invalid grant: Authorization code already used or expired
+            - Missing redirect_uri: Callback URL doesn't match registered URL in QuickBooks
+            - Token refresh failure: Refresh token expired or invalid
+            """)
+        
         # View Database Quotes
         with st.expander("View Quote Database"):
             st.subheader("Recent Quotes")
