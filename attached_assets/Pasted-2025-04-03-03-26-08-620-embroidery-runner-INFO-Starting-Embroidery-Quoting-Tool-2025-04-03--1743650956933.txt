@@ -1,0 +1,158 @@
+2025-04-03 03:26:08,620 - embroidery_runner - INFO - Starting Embroidery Quoting Tool...
+2025-04-03 03:26:08,620 - embroidery_runner - INFO - Starting Streamlit application...
+2025-04-03 03:26:08,621 - embroidery_runner - INFO - Starting OAuth callback ser[Streamlit] 
+[Streamlit] Collecting usage statistics. To deactivate, set browser.gatherUsageStats to false.
+[Streamlit] 
+[Streamlit] 
+[Streamlit]   You can now view your Streamlit app in your browser.
+[Streamlit] 
+[Streamlit]   URL: http://0.0.0.0:5000
+[Streamlit] 
+2025-04-03 03:26:10,795 - embroidery_runner - INFO - QuickBooks settings table verified
+2025-04-03 03:26:11,455 - embroidery_runner - INFO - OAuth server created and ready to run on port 8000
+2025-04-03 03:26:11,455 - embroidery_runner - INFO - OAuth server thread started successfully
+2025-04-03 03:26:11,456 - embroidery_runner - INFO - Starting service monitoring...
+[Streamlit] Intuit OAuth library imported successfully
+[Streamlit] QuickBooks libraries imported successfully
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Checking QuickBooks authentication status...
+[Streamlit] QuickBooks settings check:
+[Streamlit]   - Client ID present: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit]   - Client Secret present: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit]   - Realm ID present: 9341454425005330
+[Streamlit] Access token present: False
+[Streamlit] Refresh token present: False
+[Streamlit] Replit domain from REPLIT_DOMAINS: b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev
+[Streamlit] Using callback URI for OAuth: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Intuit OAuth library imported successfully
+[Streamlit] QuickBooks libraries imported successfully
+[Streamlit] Intuit OAuth library imported successfully
+[Streamlit] QuickBooks libraries imported successfully
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Checking QuickBooks authentication status...
+[Streamlit] QuickBooks settings check:
+[Streamlit]   - Client ID present: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit]   - Client Secret present: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit]   - Realm ID present: 9341454425005330
+[Streamlit] Access token present: False
+[Streamlit] Refresh token present: False
+[Streamlit] Replit domain from REPLIT_DOMAINS: b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev
+[Streamlit] Using callback URI for OAuth: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Intuit OAuth library imported successfully
+[Streamlit] QuickBooks libraries imported successfully
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Checking QuickBooks authentication status...
+[Streamlit] QuickBooks settings check:
+[Streamlit]   - Client ID present: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit]   - Client Secret present: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit]   - Realm ID present: 9341454425005330
+[Streamlit] Access token present: False
+[Streamlit] Refresh token present: False
+[Streamlit] Replit domain from REPLIT_DOMAINS: b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev
+[Streamlit] Using callback URI for OAuth: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] === GENERATING QUICKBOOKS AUTH URL ===
+[Streamlit] Using redirect URI from Replit domain: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Verified saved redirect URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Created Intuit AuthClient with redirect to: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Generated state parameter: 6fcda965...
+[Streamlit] Got base authorization URL (truncated): https://appcenter.intuit.com/connect/oauth2?client_id=ABgztw...
+[Streamlit] Final authorization URL (truncated): https://appcenter.intuit.com/connect/oauth2?client_id=ABgztw...
+[Streamlit] === END OF QUICKBOOKS AUTH URL GENERATION ===
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Intuit OAuth library imported successfully
+[Streamlit] QuickBooks libraries imported successfully
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Checking QuickBooks authentication status...
+[Streamlit] QuickBooks settings check:
+[Streamlit]   - Client ID present: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit]   - Client Secret present: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit]   - Realm ID present: 9341454425005330
+[Streamlit] Access token present: False
+[Streamlit] Refresh token present: False
+[Streamlit] Replit domain from REPLIT_DOMAINS: b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev
+[Streamlit] Using callback URI for OAuth: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Intuit OAuth library imported successfully
+[Streamlit] QuickBooks libraries imported successfully
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit] Setting QB_REALM_ID: 9341454425005330
+[Streamlit] Setting QB_ACCESS_TOKEN: 
+[Streamlit] Setting QB_REFRESH_TOKEN: 
+[Streamlit] Setting QB_REDIRECT_URI: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_ENVIRONMENT: sandbox
+[Streamlit] Checking QuickBooks authentication status...
+[Streamlit] QuickBooks settings check:
+[Streamlit]   - Client ID present: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit]   - Client Secret present: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17
+[Streamlit]   - Realm ID present: 9341454425005330
+[Streamlit] Access token present: False
+[Streamlit] Refresh token present: False
+[Streamlit] Replit domain from REPLIT_DOMAINS: b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev
+[Streamlit] Using callback URI for OAuth: https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback
+[Streamlit] Setting QB_CLIENT_ID: ABgztwO724NEvVRVrXcrKrBUdDccjg26eE9DJ96xySwxyYaZjY
+[Streamlit] Setting QB_CLIENT_SECRET: r4JCARkCUWWG7tTTbqgpvSnYkE4EWSWGS3DvSt17

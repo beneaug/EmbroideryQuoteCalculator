@@ -1,0 +1,35 @@
+It looks like your application is not obtaining the access and refresh tokens, which is crucial for handling OAuth authentication with QuickBooks. Here are a few steps to check and fix the issue:
+
+Check Callback URI in QuickBooks Application: Ensure that https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback is set as an "Authorized Redirect URI" in your QuickBooks app settings.
+Ensure Tokens Are Handled in Your Code: Make sure your code includes the logic to exchange the authorization code received at the callback for access and refresh tokens. You will typically need to parse the callback URL parameters to get the authorization code.
+Setup Example for Handling Tokens:
+Here's an example code snippet you could use to handle the OAuth callback and retrieve the tokens properly:
+from flask import Flask, request, redirect, session
+import requests
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+@app.route('/callback')
+def callback():
+    code = request.args.get('code')
+    if not code:
+        return "No code provided", 400
+    # Exchange the code for tokens
+    response = requests.post('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', 
+                             data={
+                                 'grant_type': 'authorization_code',
+                                 'code': code,
+                                 'redirect_uri': 'https://b1518f9f-8980-4a58-b73b-3dd813ffa3f5-00-ee9n49p8ejxm.picard.replit.dev/callback',
+                                 'client_id': 'YOUR_CLIENT_ID',
+                                 'client_secret': 'YOUR_CLIENT_SECRET'
+                             })
+    if response.status_code == 200:
+        tokens = response.json()
+        session['access_token'] = tokens.get('access_token')
+        session['refresh_token'] = tokens.get('refresh_token')
+        return redirect('/success')  # Redirect or render success page
+    else:
+        return f"Failed to retrieve tokens: {response.status_code} {response.text}"
+Test the Full Flow: Ensure you're testing the full OAuth flow to see if the application receives the authorization code and exchanges it for tokens correctly.
+Make sure to replace 'YOUR_CLIENT_ID' and 'YOUR_CLIENT_SECRET' with your actual QuickBooks app credentials.
+
+Try making these changes and run your application again. This should help resolve the issues related to obtaining the access and refresh tokens.
