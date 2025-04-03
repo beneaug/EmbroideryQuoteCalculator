@@ -21,6 +21,8 @@ import datetime
 import requests
 import urllib.parse
 import database
+import logging
+import traceback
 
 # Import QuickBooks Libraries with better error handling
 QUICKBOOKS_AVAILABLE = False
@@ -1290,12 +1292,116 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
         print(f"Error details: {error_details}")
         return False, f"Error exporting to QuickBooks: {str(e)}", None, None
 
-def get_quickbooks_auth_url():
-    """Generate QuickBooks authorization URL with direct callback to our Streamlit app
+# Function to directly exchange authorization code for tokens using REST API
+def direct_token_exchange(code, realm_id):
+    """
+    Exchange authorization code for tokens using direct API call
+    and save using the dedicated database function.
+    """
+    token_logger = logging.getLogger('qb_token_exchange')
+    token_logger.setLevel(logging.INFO)
     
-    This function creates an authorization URL that redirects directly to our Streamlit app
-    at the /callback path, where the token exchange is handled without relying on
-    a separate OAuth server.
+    token_logger.info(f"Starting direct token exchange for realm {realm_id} with code {code[:5] if code else 'None'}...")
+    try:
+        # Get QuickBooks settings from database
+        qb_settings = database.get_quickbooks_settings()
+        client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
+        client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
+        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+
+        # Construct redirect URI (Must match Intuit Dev Dashboard for the *app's base URL*)
+        # Intuit redirects back here, adding the query params
+        import os
+        replit_domain = os.environ.get("REPLIT_DOMAINS", "")
+        if replit_domain:
+            replit_domain = replit_domain.split(',')[0].strip()
+        # Use the base app URL as redirect URI, not the /callback path
+        redirect_uri = f"https://{replit_domain}/" if replit_domain else "http://localhost:5000/" 
+
+        token_logger.info(f"Using client_id: {client_id[:5] if client_id else 'None'}...")
+        token_logger.info(f"Realm ID: {realm_id}")
+        token_logger.info(f"Using redirect_uri for exchange: {redirect_uri}")
+        token_logger.info(f"Environment: {environment}")
+
+        token_endpoint = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+        token_logger.info(f"Making token exchange request to: {token_endpoint}")
+
+        data = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': redirect_uri # Use the base app URL here
+        }
+
+        import base64
+        auth_header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        headers = {
+            'Authorization': f'Basic {auth_header}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+
+        response = requests.post(token_endpoint, data=data, headers=headers)
+        token_logger.info(f"Token response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            token_data = response.json()
+            token_logger.info("Token exchange successful!")
+
+            access_token = token_data.get('access_token')
+            refresh_token = token_data.get('refresh_token')
+            expires_in = token_data.get('expires_in', 3600)
+            token_expiry = time.time() + expires_in
+
+            # Log token details (partially masked)
+            if access_token:
+                token_logger.info(f"Access token received (first 5 chars): {access_token[:5]}...")
+                token_logger.info(f"Token expires in: {expires_in} seconds (at epoch {token_expiry})")
+            if refresh_token:
+                token_logger.info(f"Refresh token received (first 5 chars): {refresh_token[:5]}...")
+
+            token_logger.info("Saving tokens using dedicated database function...")
+
+            access_saved = database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
+            refresh_saved = database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
+            realm_saved = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+
+            token_logger.info(f"Database save results: Access={access_saved}, Refresh={refresh_saved}, Realm={realm_saved}")
+
+            if access_saved and refresh_saved and realm_saved:
+                 token_logger.info("Tokens and Realm ID successfully saved and verified.")
+                 return True, "Authentication successful"
+            else:
+                 errors = []
+                 if not access_saved: errors.append("Access Token")
+                 if not refresh_saved: errors.append("Refresh Token")
+                 if not realm_saved: errors.append("Realm ID")
+                 error_detail = f"Token/Realm saving failed for: {', '.join(errors)}"
+                 token_logger.error(error_detail)
+                 return False, error_detail
+
+        else:
+            error_msg = f"Token exchange failed: {response.status_code} - {response.text}"
+            token_logger.error(error_msg)
+            # Attempt to parse error details from response
+            try:
+                error_details = response.json()
+                error_desc = error_details.get('error_description', response.text)
+                error_msg = f"Token exchange failed: {response.status_code} - {error_desc}"
+            except:
+                pass # Stick with the original error message if JSON parsing fails
+            return False, error_msg
+
+    except Exception as e:
+        error_msg = f"Unexpected error in token exchange: {str(e)}"
+        token_logger.error(error_msg)
+        token_logger.error(traceback.format_exc())
+        return False, error_msg
+
+def get_quickbooks_auth_url():
+    """Generate QuickBooks authorization URL with direct callback to the main app URL
+    
+    This function creates an authorization URL that redirects directly to our Streamlit app's
+    base URL, where the token exchange is handled in the main app.py.
     
     Returns:
         str: Authorization URL or None if error
@@ -1324,20 +1430,20 @@ def get_quickbooks_auth_url():
         # Get redirect URI - CRITICAL for OAuth flow
         import os
         
-        # IMPORTANT: For Replit, always use the actual Replit domain for the callback
-        # This ensures the callback comes back to our application properly
+        # IMPORTANT: For Replit, always use the actual Replit domain
+        # But use the base URL instead of the /callback path
         replit_domain = os.environ.get("REPLIT_DOMAINS", "")
         
         if replit_domain:
             # Parse the first domain from the comma-separated list
             replit_domain = replit_domain.split(',')[0].strip()
-            # Set the callback URL to use this domain
-            redirect_uri = f"https://{replit_domain}/callback"
-            print(f"Using redirect URI from Replit domain: {redirect_uri}")
+            # Set the callback URL to use this domain's base URL (note the trailing slash)
+            redirect_uri = f"https://{replit_domain}/"
+            print(f"Using base app URL as redirect URI: {redirect_uri}")
         else:
             # Fallback for local development (should never happen in production)
-            redirect_uri = "https://embroideryquotecalculator.juliewoodland.repl.co/callback"
-            print(f"WARNING: Using hardcoded fallback redirect URI: {redirect_uri}")
+            redirect_uri = "http://localhost:5000/"
+            print(f"WARNING: Using local fallback redirect URI: {redirect_uri}")
         
         # Always update the redirect URI in the database to ensure consistency
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
@@ -1420,9 +1526,42 @@ def main():
     query_params = st.query_params
     
     # ----- HANDLE QUICKBOOKS OAUTH CALLBACK -----
-    # New implementation for the dedicated Flask OAuth server
+    # First, check for OAuth callback parameters (code and realmId)
+    if 'code' in query_params and 'realmId' in query_params:
+        code = query_params.get('code')
+        realm_id = query_params.get('realmId')
+        state = query_params.get('state', '')  # Optional: Verify state if you store it
+
+        st.title("QuickBooks Authentication")
+        st.info("Processing QuickBooks authorization...")
+        st.write(f"Received authorization code: {code[:5]}...")
+        st.write(f"Received company ID: {realm_id}")
+
+        with st.spinner("Exchanging code for tokens..."):
+            # Call the direct token exchange function
+            success, message = direct_token_exchange(code, realm_id)
+
+        if success:
+            st.success(f"✅ Authentication Successful! {message}")
+            st.balloons()
+            st.info("Redirecting back to the application...")
+            # Clear query parameters and rerun to show the main app state
+            time.sleep(2)  # Give user time to see the message
+            st.query_params.clear()
+            st.rerun()
+        else:
+            st.error(f"❌ Authentication Failed: {message}")
+            st.warning("Please check your QuickBooks API settings and try connecting again from the Admin tab.")
+            # Optionally, add a button to clear params and continue
+            if st.button("Continue to App"):
+                st.query_params.clear()
+                st.rerun()
+
+        # Stop execution here to prevent rendering the rest of the app during callback processing
+        st.stop()
+    # --- END: HANDLE QUICKBOOKS OAUTH CALLBACK ---
     
-    # Handle success message from the OAuth server
+    # Handle success message from the OAuth flow
     if 'qb_auth_success' in query_params:
         st.markdown("## QuickBooks Authentication")
         st.success("✅ Successfully connected to QuickBooks!")
