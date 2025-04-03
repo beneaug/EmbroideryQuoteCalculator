@@ -1352,11 +1352,29 @@ def get_quickbooks_auth_url():
             Scopes.OPENID       # Required for authentication flow
         ]
         
-        # Generate the authorization URL (Note: This version of the library doesn't support state parameter)
-        auth_url = auth_client.get_authorization_url(scopes)
-        print(f"Generated QuickBooks auth URL, associated with state: {state}")
-        
-        return auth_url
+        # Generate the authorization URL
+        try:
+            # Add state parameter manually because the library might be ignoring it
+            auth_url = auth_client.get_authorization_url(scopes)
+            print(f"Original auth URL: {auth_url}")
+            
+            # If auth URL doesn't already contain a state parameter, add it
+            if "&state=" not in auth_url and "?state=" not in auth_url:
+                state_param = f"state={state}"
+                if "?" in auth_url:
+                    auth_url = f"{auth_url}&{state_param}"
+                else:
+                    auth_url = f"{auth_url}?{state_param}"
+            
+            print(f"Generated QuickBooks auth URL with state: {auth_url}")
+            return auth_url
+            
+        except Exception as e:
+            import traceback
+            print(f"Error generating QuickBooks auth URL: {str(e)}")
+            print(traceback.format_exc())
+            st.error(f"Error generating QuickBooks authorization URL: {str(e)}")
+            return None
         
     except Exception as e:
         import traceback
@@ -1543,7 +1561,13 @@ def main():
                 
                 # Exchange code for tokens - this is where most errors occur
                 print(f"Calling get_bearer_token() with auth_code (first 10 chars): {auth_code[:10]}...")
-                auth_client.get_bearer_token(auth_code)
+                
+                # Ensure we pass the realm_id directly as per library requirements
+                # Some versions of the library require this, even if not documented well
+                auth_client.get_bearer_token(
+                    auth_code=auth_code,
+                    realm_id=realm_id
+                )
                 print("Token exchange successful")
                 
                 # Save tokens and realm ID to database

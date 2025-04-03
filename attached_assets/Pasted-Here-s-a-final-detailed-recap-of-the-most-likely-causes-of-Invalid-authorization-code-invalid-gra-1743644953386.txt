@@ -1,0 +1,107 @@
+Here’s a final, detailed recap of the most likely causes of “Invalid authorization code”/invalid_grant in your QuickBooks OAuth flow, along with specific steps to fix them. Based on the recurring errors in your logs and a review of the EmbroideryQuoteCalculator repo, it’s almost certainly related to re-using or delaying the code exchange. Even a small page refresh at the callback URL can trigger the same code exchange a second time.
+
+⸻
+
+1. Ensure the Token Exchange Happens Exactly Once
+
+Why?
+	•	Each authorization code is valid only once. If your callback endpoint tries to exchange the same code a second time (even by accident), you get the invalid_grant error.
+
+What to Do
+	1.	Immediate Redirect After Exchange
+	•	Right after you call get_bearer_token(auth_code, realm_id=realm_id), store the tokens in session/database, then redirect the user to another route (e.g. /dashboard).
+	•	This prevents the callback route from re-running the token exchange if the user hits refresh.
+	2.	Session Flag
+	•	If you prefer to stay on the same page, store a boolean in the session (e.g., session['code_used'] = True) after you get tokens. On subsequent hits to the callback route, check that flag and skip the exchange if it’s set.
+	3.	Check for Multiple Calls in Logs
+	•	Add logging to confirm the token exchange (get_bearer_token()) is only called once per new authorization code.
+	•	If you see two or more calls to the token endpoint in your logs for the same code, that’s the root cause.
+
+⸻
+
+2. Prevent Code Expiration (Within ~10 Minutes)
+
+Why?
+	•	QuickBooks invalidates the code if you wait more than 10 minutes to exchange it.
+
+What to Do
+	1.	Complete the Flow Quickly
+	•	Don’t leave the QuickBooks consent screen open for too long.
+	•	Once you land on the callback, immediately call get_bearer_token().
+	2.	Avoid Manual Pauses
+	•	If you’re debugging or stepping through code, you might inadvertently let the code age out.
+	•	Just re-initiate the “Connect to QuickBooks” button if you need a fresh code.
+
+⸻
+
+3. Verify Redirect URI and Environment
+
+Why?
+	•	If the code was issued under one environment (e.g., Development) but you’re using Production credentials, or if your callback URI doesn’t exactly match what’s in the Intuit Developer Portal, QuickBooks sees the code as invalid.
+
+What to Do
+	1.	Check the Intuit Developer Portal
+	•	Go to Dashboard → Apps → Keys & OAuth.
+	•	Under “Redirect URIs,” confirm it matches exactly what you have in your code (including https:// vs http://, port numbers, trailing slash, etc.).
+	2.	Check Dev vs. Prod
+	•	Make sure you’re using Development keys if your code is hitting the Dev environment.
+	•	If you moved to Production, add the correct redirect URI under Production settings and use the Production keys in your .env or config.
+
+⸻
+
+4. Code Snippet Example (Flask-Style)
+
+Here’s a consolidated approach that addresses both “single-use” and “post-redirect” best practices:
+
+@app.route('/callback')
+def quickbooks_oauth_callback():
+    # If tokens already exist in session, skip exchange (avoid reusing code)
+    if 'qb_access_token' in session:
+        flash("Already connected to QuickBooks.")
+        return redirect(url_for('dashboard'))
+
+    auth_code = request.args.get('code')
+    realm_id = request.args.get('realmId')
+
+    if not auth_code:
+        flash("No authorization code returned from QuickBooks.")
+        return redirect(url_for('error_page'))
+
+    try:
+        # Exchange the code for tokens exactly once
+        tokens = auth_client.get_bearer_token(auth_code, realm_id=realm_id)
+        # Store them in session (or database)
+        session['qb_access_token'] = tokens.get('access_token')
+        session['qb_refresh_token'] = tokens.get('refresh_token')
+        session['qb_realm_id'] = realm_id
+
+        # Immediately redirect to avoid re-using the code on refresh
+        return redirect(url_for('dashboard'))
+
+    except Exception as e:
+        app.logger.error(f"Token exchange failed: {e}")
+        flash("Failed to exchange token with QuickBooks.")
+        return redirect(url_for('error_page'))
+
+Key Points:
+	•	Single Use: If the user refreshes /callback after the first successful exchange, the code is no longer in session, so it won’t be re-exchanged.
+	•	Immediate Redirect: Minimizes the chance of re-submitting the same code.
+	•	Token Storage: You have them in session, so you don’t need to re-initiate the OAuth flow for every call.
+
+⸻
+
+5. Confirm it’s Working
+	1.	Clear or Start Fresh
+	•	Clear your session (or use an incognito window).
+	•	Start the OAuth flow by clicking “Connect to QuickBooks.”
+	2.	Complete Consent Quickly
+	•	Don’t linger on the Intuit sign-in or consent screen for more than a few minutes.
+	3.	Watch the Logs
+	•	You should see only one call to get_bearer_token() per new code.
+	•	After that call, your logs shouldn’t show repeated “invalid_grant” errors.
+
+⸻
+
+Final Takeaway
+
+The root cause is almost certainly that your code is being used again (due to a page reload or re-invocation of the callback) or it’s expiring before the exchange. Ensuring a single-use, immediate exchange flow with a quick redirect (or a session “used” flag) is the key to solving “Invalid authorization code” errors. Once that’s in place, you should be able to maintain a stable QuickBooks connection without seeing invalid_grant messages.
