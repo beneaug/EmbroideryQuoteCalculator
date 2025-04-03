@@ -23,10 +23,9 @@ def run_streamlit_app():
     """Run the Streamlit application on port 5000"""
     logger.info("Starting Embroidery Quoting Tool...")
     
-    # First, ensure the database has the required QuickBooks settings table
+    # Import database module
     import database
-    database.create_quickbooks_table_if_missing()
-    logger.info("QuickBooks settings table verified")
+    logger.info("Database module imported")
     
     # Start the Streamlit application
     logger.info("Starting Streamlit application on port 5000...")
