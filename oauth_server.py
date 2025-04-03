@@ -19,6 +19,7 @@ import json
 from flask import Flask, request, redirect
 from intuitlib.client import AuthClient
 from intuitlib.exceptions import AuthClientError
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(
@@ -148,7 +149,14 @@ def oauth_callback():
         logger.info(f"Saving realm ID: {realm_id}")
         database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
         
-        # Save access token with expiry
+        # Add a small delay to ensure database operations don't collide
+        time.sleep(0.5)
+        
+        # First, ensure the token records exist by using update_setting
+        database.update_setting("quickbooks_settings", "QB_ACCESS_TOKEN", auth_client.access_token)
+        database.update_setting("quickbooks_settings", "QB_REFRESH_TOKEN", auth_client.refresh_token)
+        
+        # Then update with the specialized token function that handles expiry
         token_expiry = time.time() + auth_client.expires_in
         logger.info(f"Saving access token (length: {len(auth_client.access_token)}) with expiry: {token_expiry}")
         token_result = database.update_quickbooks_token("QB_ACCESS_TOKEN", auth_client.access_token, token_expiry)
@@ -160,10 +168,44 @@ def oauth_callback():
         logger.info(f"Refresh token save result: {refresh_result}")
         
         # Verify tokens were saved correctly
+        time.sleep(0.5)  # Small delay to ensure database consistency
         qb_settings = database.get_quickbooks_settings()
         access_token_saved = qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', '')
         refresh_token_saved = qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', '')
         logger.info(f"Verification - Access token saved: {bool(access_token_saved)}, Refresh token saved: {bool(refresh_token_saved)}")
+        
+        # If either token is not saved correctly, try one more time as direct SQL
+        if not access_token_saved or not refresh_token_saved:
+            logger.warning("Token verification failed! Attempting emergency direct SQL update...")
+            conn = None
+            try:
+                conn = database.get_connection()
+                if conn:
+                    # Direct SQL for access token
+                    conn.execute(text("""
+                        UPDATE quickbooks_settings 
+                        SET value = :value, token_expires_at = :expires, updated_at = CURRENT_TIMESTAMP 
+                        WHERE name = 'QB_ACCESS_TOKEN'
+                    """), {"value": auth_client.access_token, "expires": token_expiry})
+                    
+                    # Direct SQL for refresh token
+                    conn.execute(text("""
+                        UPDATE quickbooks_settings 
+                        SET value = :value, updated_at = CURRENT_TIMESTAMP 
+                        WHERE name = 'QB_REFRESH_TOKEN'
+                    """), {"value": auth_client.refresh_token})
+                    
+                    conn.commit()
+                    logger.info("Emergency SQL update completed")
+                else:
+                    logger.error("Failed to get database connection for emergency update")
+            except Exception as sql_err:
+                logger.error(f"Emergency SQL update failed: {str(sql_err)}")
+                if conn:
+                    conn.rollback()
+            finally:
+                if conn:
+                    conn.close()
         
         # Redirect back to the main app with success message
         logger.info(f"Redirecting user back to main application...")

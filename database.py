@@ -619,10 +619,38 @@ def update_quickbooks_token(token_type, token_value, token_expires_at=None):
         verify_query = "SELECT value FROM quickbooks_settings WHERE name = :name"
         verify_result = conn.execute(text(verify_query), {"name": token_type})
         saved_value = verify_result.scalar()
-        saved_preview = f"{saved_value[:10]}..." if saved_value and len(saved_value) > 10 else "None"
+        
+        # Special handling - if the token wasn't saved properly, try a direct SQL approach
+        if not saved_value or saved_value == "":
+            print(f"WARNING: Verification failed for {token_type}, attempting emergency direct SQL update")
+            
+            # Try a direct SQL approach with explicit transaction
+            direct_update_query = f"""
+            UPDATE quickbooks_settings 
+            SET value = :value, 
+                updated_at = CURRENT_TIMESTAMP 
+            WHERE name = :name
+            """
+            
+            conn.execute(text(direct_update_query), {
+                "value": token_value,
+                "name": token_type
+            })
+            conn.commit()
+            
+            # Re-verify
+            verify_again = conn.execute(text(verify_query), {"name": token_type}).scalar()
+            if verify_again and verify_again != "":
+                print(f"Emergency update successful for {token_type}")
+                saved_value = verify_again
+            else:
+                print(f"WARNING: Emergency update failed for {token_type}")
+        
+        # Log the verification result (with sanitized output)
+        saved_preview = f"{saved_value[:10]}..." if saved_value and len(saved_value) > 10 else "None or Empty"
         print(f"Verification - {token_type} value in database: {saved_preview}")
         
-        return True
+        return bool(saved_value and saved_value != "")
         
     except SQLAlchemyError as sql_err:
         # Handle SQL errors with proper transaction management
