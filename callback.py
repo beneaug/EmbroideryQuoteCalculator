@@ -75,11 +75,16 @@ if 'code' in params and 'realmId' in params:
             expires_in = token_data.get('expires_in', 3600)
             token_expiry = time.time() + expires_in
 
-            # Save tokens
+            # Save tokens with explicit database calls
             logger.info("Saving tokens to database...")
-            database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-            database.update_setting("quickbooks_settings", "QB_ACCESS_TOKEN", access_token)
-            database.update_setting("quickbooks_settings", "QB_REFRESH_TOKEN", refresh_token)
+            try:
+                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+                database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
+                database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
+                logger.info("Tokens saved successfully")
+            except Exception as save_error:
+                logger.error(f"Error saving tokens: {str(save_error)}")
+                raise save_error
 
             # Update token expiry
             conn = database.get_connection()
