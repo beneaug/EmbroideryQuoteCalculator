@@ -1,0 +1,121 @@
+Here's a step-by-step diagnosis and solution:
+
+The Problem: The logs consistently show Access token present: False and Refresh token present: False even after you presumably go through the "Connect to QuickBooks" flow. This means the part of the code responsible for saving the tokens after the user authorizes on the Intuit site is failing or being bypassed.
+Conflicting OAuth Return Handling:
+You have callback.py, which is correctly set up as the redirect_uri (https://.../callback). This script should receive the code and realmId from Intuit, exchange them for tokens using direct_token_exchange, and save them to the database.
+However, inside app.py (in the Admin tab's QuickBooks section, specifically the components.html block), you have JavaScript code that also tries to handle the return from OAuth by looking for ?success=true or ?error=... parameters, storing them in sessionStorage, and reloading the page. This JavaScript approach is likely interfering with or bypassing the intended callback.py flow. It's unnecessary complexity when you have a dedicated callback script.
+Potential Issue in callback.py Token Saving:
+Inside direct_token_exchange in callback.py, you first call database.update_setting for the tokens before the direct SQL block. The update_setting function doesn't handle the token_expires_at column correctly. While the subsequent direct SQL should fix this, it's better to use the function specifically designed for tokens: database.update_quickbooks_token.
+Solution Steps:
+
+Step 1: Remove Conflicting JavaScript in app.py
+
+Go to your app.py file.
+Find the "Admin Settings" tab (with tab3:).
+Inside the QuickBooks Integration Settings expander, locate the components.html(...) block near the end of that section.
+Delete this entire components.html(...) block. It's causing confusion and is not needed since callback.py handles the return.
+Step 2: Fix Token Saving in callback.py
+
+Open your callback.py file.
+Modify the direct_token_exchange function to use database.update_quickbooks_token for saving tokens.
+# callback.py
+
+# ... (imports and other code remain the same) ...
+
+# Function to directly exchange authorization code for tokens using REST API
+def direct_token_exchange(code, realm_id):
+    """
+    Exchange authorization code for tokens using direct API call
+    and save using the dedicated database function.
+    """
+    try:
+        # Import database module for token storage
+        import database # Make sure database is imported here
+
+        # Get QuickBooks settings from database
+        qb_settings = database.get_quickbooks_settings()
+        client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
+        client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
+        environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
+
+        # Construct redirect URI (ensure this matches Intuit Dev Dashboard)
+        redirect_uri = f"https://{replit_domain}/callback" if replit_domain else "https://embroideryquotecalculator.juliewoodland.repl.co/callback" # Fallback might need update if domain changes
+
+        logger.info(f"Using client_id: {client_id[:5]}...")
+        logger.info(f"Realm ID: {realm_id}")
+        logger.info(f"Redirect URI: {redirect_uri}")
+        logger.info(f"Environment: {environment}")
+
+        token_endpoint = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+        logger.info(f"Making token exchange request to: {token_endpoint}")
+
+        data = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': redirect_uri
+        }
+
+        import base64
+        auth_header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        headers = {
+            'Authorization': f'Basic {auth_header}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+
+        response = requests.post(token_endpoint, data=data, headers=headers)
+
+        if response.status_code == 200:
+            token_data = response.json()
+            logger.info("Token exchange successful!")
+
+            access_token = token_data.get('access_token')
+            refresh_token = token_data.get('refresh_token')
+            expires_in = token_data.get('expires_in', 3600)
+            token_expiry = time.time() + expires_in
+
+            # Log token details (partially masked)
+            if access_token:
+                logger.info(f"Access token received (first 5 chars): {access_token[:5]}...")
+                logger.info(f"Token expires in: {expires_in} seconds (at epoch {token_expiry})")
+            if refresh_token:
+                logger.info(f"Refresh token received (first 5 chars): {refresh_token[:5]}...")
+
+            # --- CORRECTED TOKEN SAVING ---
+            logger.info("Saving tokens using dedicated database function...")
+
+            # Use the dedicated function which handles expiry correctly
+            access_saved = database.update_quickbooks_token('QB_ACCESS_TOKEN', access_token, token_expiry)
+            refresh_saved = database.update_quickbooks_token('QB_REFRESH_TOKEN', refresh_token)
+
+            # Save Realm ID (update_setting is okay here as it has no expiry)
+            realm_saved = database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+
+            logger.info(f"Database save results: Access={access_saved}, Refresh={refresh_saved}, Realm={realm_saved}")
+
+            # --- VERIFICATION AND RETURN ---
+            if access_saved and refresh_saved and realm_saved:
+                 logger.info("Tokens and Realm ID successfully saved and verified.")
+                 return True, "Authentication successful"
+            else:
+                 errors = []
+                 if not access_saved: errors.append("Access Token")
+                 if not refresh_saved: errors.append("Refresh Token")
+                 if not realm_saved: errors.append("Realm ID")
+                 error_detail = f"Token/Realm saving failed for: {', '.join(errors)}"
+                 logger.error(error_detail)
+                 return False, error_detail
+            # --- END OF CORRECTED SAVING ---
+
+        else:
+            error_msg = f"Token exchange failed: {response.status_code} - {response.text}"
+            logger.error(error_msg)
+            return False, error_msg
+
+    except Exception as e:
+        error_msg = f"Unexpected error in token exchange: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return False, error_msg
+
+# ... (rest of callback.py remains the same) ...
