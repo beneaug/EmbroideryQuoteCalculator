@@ -1286,31 +1286,22 @@ def export_to_quickbooks(design_info, job_inputs, cost_results):
 def get_quickbooks_auth_url():
     """Generate QuickBooks authorization URL following Intuit OAuth 2.0 documentation
     
-    This function implements a barebones, clean OAuth URL generator that follows the
+    This function implements a clean OAuth URL generator that follows the
     Intuit Developer documentation exactly, with no unnecessary complexity.
     
     Returns:
         str: Authorization URL or None if error
     """
-    # Display QuickBooks library status
-    print(f"QuickBooks libraries available: {QUICKBOOKS_AVAILABLE}")
-    if not QUICKBOOKS_AVAILABLE:
-        st.error(f"QuickBooks libraries are not available: {QUICKBOOKS_IMPORT_ERROR}")
-        return None
-    
     try:
-        # Get settings from database with clear error handling
+        # Get settings from database
         qb_settings = database.get_quickbooks_settings()
-        if not qb_settings:
-            st.error("Unable to retrieve QuickBooks settings from database")
-            return None
-            
-        # Get client credentials - essential for OAuth
+        
+        # Get client credentials
         client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
         client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
         environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
         
-        # Validate credentials
+        # Check credentials
         if not client_id or not client_secret:
             st.error("Missing QuickBooks client credentials. Please set them in the Admin settings.")
             return None
@@ -1320,25 +1311,18 @@ def get_quickbooks_auth_url():
         replit_domain = os.environ.get("REPLIT_DOMAINS", "")
         if replit_domain:
             replit_domain = replit_domain.split(',')[0].strip()
-        
-        # Create a redirect URI exactly as required by Intuit
-        if replit_domain:
             redirect_uri = f"https://{replit_domain}/callback"
         else:
             redirect_uri = "http://localhost:5000/callback"
         
-        # Generate a unique identifier for logging purposes only
-        # since this version of the library doesn't support state parameter
-        import uuid, time
-        state = f"{str(uuid.uuid4())}_{int(time.time())}"
-        
-        # Save the redirect URI to ensure consistency
+        # Save the redirect URI
         database.update_setting("quickbooks_settings", "QB_REDIRECT_URI", redirect_uri)
         
-        # Initialize the auth client with explicit parameters
+        # Use the official Intuit OAuth library
         from intuitlib.client import AuthClient
         from intuitlib.enums import Scopes
         
+        # Initialize the auth client
         auth_client = AuthClient(
             client_id=client_id,
             client_secret=client_secret,
@@ -1346,41 +1330,25 @@ def get_quickbooks_auth_url():
             environment=environment
         )
         
-        # Define the required scopes according to Intuit documentation
+        # Define the required scopes
         scopes = [
-            Scopes.ACCOUNTING,  # Required for access to financial data
-            Scopes.OPENID       # Required for authentication flow
+            Scopes.ACCOUNTING,  # For financial data
+            Scopes.OPENID       # For authentication flow
         ]
         
-        # Generate the authorization URL
-        try:
-            # Add state parameter manually because the library might be ignoring it
-            auth_url = auth_client.get_authorization_url(scopes)
-            print(f"Original auth URL: {auth_url}")
-            
-            # If auth URL doesn't already contain a state parameter, add it
-            if "&state=" not in auth_url and "?state=" not in auth_url:
-                state_param = f"state={state}"
-                if "?" in auth_url:
-                    auth_url = f"{auth_url}&{state_param}"
-                else:
-                    auth_url = f"{auth_url}?{state_param}"
-            
-            print(f"Generated QuickBooks auth URL with state: {auth_url}")
-            return auth_url
-            
-        except Exception as e:
-            import traceback
-            print(f"Error generating QuickBooks auth URL: {str(e)}")
-            print(traceback.format_exc())
-            st.error(f"Error generating QuickBooks authorization URL: {str(e)}")
-            return None
+        # Generate the authorization URL using the library
+        auth_url = auth_client.get_authorization_url(scopes)
+        
+        # Log the URL for debugging
+        print(f"Generated QuickBooks authorization URL: {auth_url}")
+        
+        return auth_url
         
     except Exception as e:
         import traceback
         print(f"Error generating QuickBooks auth URL: {str(e)}")
         print(traceback.format_exc())
-        st.error(f"Error generating QuickBooks authorization URL: {str(e)}")
+        st.error(f"Error connecting to QuickBooks: {str(e)}")
         return None
 
 
@@ -1405,246 +1373,138 @@ def main():
     query_params = st.query_params
     
     # ----- HANDLE QUICKBOOKS OAUTH CALLBACK -----
-    # This section implements a true Post-Redirect-Get pattern for QuickBooks OAuth
-    # to ensure authorization codes are only used once
-    
-    # FIRST STEP: Check if we're in a post-auth state needing a redirect
-    if 'qb_post_auth_redirect' in st.session_state and st.session_state.qb_post_auth_redirect:
-        auth_result = st.session_state.get('qb_auth_result', {})
-        success = auth_result.get('success', False)
-        message = auth_result.get('message', '')
-        
-        # Clear the redirect flag to prevent future redirects
-        st.session_state.qb_post_auth_redirect = False
-        
-        # Clear query parameters to prevent code reuse
-        st.query_params.clear()
-        
-        if success:
-            st.success("QuickBooks authentication successful! Your account is now connected.")
-            
-            # Display any connection details that were stored
-            with st.expander("Connection Details"):
-                for key, value in auth_result.get('details', {}).items():
-                    st.info(f"{key}: {value}")
-                    
-            if st.button("Continue to Application", key="post_auth_success_continue"):
-                st.rerun()
-        else:
-            st.error(f"Authentication Error: {message}")
-            
-            # Show troubleshooting expander for auth code issues
-            if "invalid_grant" in message.lower() or "authorization code" in message.lower():
-                st.warning("The authorization code has expired or already been used.")
-                st.info("QuickBooks authorization codes can only be used once and expire after 10 minutes.")
-                
-                with st.expander("Troubleshooting"):
-                    st.markdown("""
-                    ### Why does this happen?
-                    
-                    1. **One-time use**: Authorization codes from QuickBooks can only be used once.
-                    2. **Expiration**: Codes expire after 10 minutes if not used.
-                    3. **Page refresh**: If you refreshed the page during the process, the code may have been consumed.
-                    
-                    ### Resolution
-                    
-                    Click "New Authorization" below to start fresh with a new authorization code.
-                    """)
-            
-            # Offer to restart or continue
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("New Authorization", key="post_auth_error_new_auth"):
-                    auth_url = get_quickbooks_auth_url()
-                    if auth_url:
-                        st.markdown(f"""
-                        <script>
-                            window.top.location.href = '{auth_url}';
-                        </script>
-                        """, unsafe_allow_html=True)
-                    st.rerun()
-            
-            with col2:
-                if st.button("Continue Without QuickBooks", key="post_auth_error_skip"):
-                    st.rerun()
-        
-        # Stop further processing
-        st.stop()
-    
-    # MAIN AUTH FLOW: Process the OAuth callback
+    # This section handles the OAuth 2.0 callback from Intuit/QuickBooks
+    # We're implementing a very simple approach following Intuit's documentation exactly
     if 'code' in query_params and 'realmId' in query_params:
         st.markdown("## QuickBooks Authentication")
-        st.info("Processing QuickBooks authentication. Please wait...")
         
-        # ----- STEP 1: HANDLE ANY ERROR PARAM IN THE CALLBACK -----
+        # Error handling for OAuth errors
         if 'error' in query_params:
-            error_message = query_params['error'][0]
-            error_description = query_params.get('error_description', ['Unknown error'])[0]
+            error_msg = query_params['error'][0]
+            error_desc = query_params.get('error_description', ['Unknown error'])[0]
+            st.error(f"Authentication Error: {error_msg} - {error_desc}")
             
-            # Prepare data for redirect pattern
-            st.session_state.qb_auth_result = {
-                'success': False,
-                'message': f"{error_message}: {error_description}"
-            }
-            st.session_state.qb_post_auth_redirect = True
-            
-            # Clear query params and trigger the redirect
-            st.query_params.clear()
-            st.rerun()
+            if st.button("Try Again", key="error_try_again"):
+                st.query_params.clear()
+                st.rerun()
             st.stop()
         
-        # ----- STEP 2: INITIALIZE CORE VARIABLES -----
+        # Process the callback
         try:
-            # Import required libraries
-            import os
+            # Import time for token expiration calculation
             import time
-            import uuid
-            import hashlib
-            from intuitlib.client import AuthClient
-            from intuitlib.exceptions import AuthClientError
             
-            # Get credentials from database
+            # Use a progress indicator
+            progress_text = "Processing authentication..."
+            progress_bar = st.progress(0)
+            
+            # Get the auth code and realm id
+            auth_code = query_params['code'][0]
+            realm_id = query_params['realmId'][0]
+            
+            # Update progress
+            st.info("Received authorization code. Exchanging for tokens...")
+            progress_bar.progress(30)
+            
+            # Always get fresh settings for each auth attempt
             qb_settings = database.get_quickbooks_settings()
             client_id = qb_settings.get('QB_CLIENT_ID', {}).get('value', '')
             client_secret = qb_settings.get('QB_CLIENT_SECRET', {}).get('value', '')
             redirect_uri = qb_settings.get('QB_REDIRECT_URI', {}).get('value', '')
             environment = qb_settings.get('QB_ENVIRONMENT', {}).get('value', 'sandbox')
             
-            # Extract auth code and realm ID from query params
-            auth_code = query_params['code'][0]
-            realm_id = query_params['realmId'][0]
+            # Log what we're about to do
+            code_preview = auth_code[:5] + "..." 
+            print(f"Starting token exchange with auth code {code_preview} and realm {realm_id}")
             
-            # Log the authorization code (first 10 characters only for security)
-            code_preview = auth_code[:10] + "..." if len(auth_code) > 10 else auth_code
-            print(f"Received authorization code: {code_preview} at time {time.time()}")
-            print(f"Received realm ID: {realm_id}")
+            # Update progress
+            progress_bar.progress(50)
             
-            # Create a unique identifier for this authorization code
-            # This is crucial to prevent duplicate processing
-            code_hash = hashlib.md5(auth_code.encode()).hexdigest()
-            auth_state_path = f".auth_state_qb_auth_{code_hash}.tmp"
+            # Initialize the OAuth client exactly as in the Intuit documentation
+            from intuitlib.client import AuthClient
+            auth_client = AuthClient(
+                client_id=client_id,
+                client_secret=client_secret,
+                environment=environment,
+                redirect_uri=redirect_uri
+            )
             
-            # Initialize tracking in session state if needed
-            st.session_state['processed_auth_codes'] = st.session_state.get('processed_auth_codes', {})
+            # Update progress
+            progress_bar.progress(70)
             
-            # Check if this code has already been processed
-            if code_hash in st.session_state['processed_auth_codes'] or os.path.exists(auth_state_path):
-                # Prepare data for redirect pattern
-                st.session_state.qb_auth_result = {
-                    'success': False,
-                    'message': "This authorization code has already been processed. QuickBooks authorization codes can only be used once."
-                }
-                st.session_state.qb_post_auth_redirect = True
+            # Make a single, synchronous token exchange call
+            # This follows the Intuit documentation for the OAuth exchange exactly
+            auth_client.get_bearer_token(auth_code, realm_id)
+            
+            # If we got here, token exchange succeeded
+            print("Token exchange successful!")
+            progress_bar.progress(90)
+            
+            # Save the tokens in the database
+            database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+            token_expiry = time.time() + auth_client.expires_in
+            database.update_quickbooks_token("QB_ACCESS_TOKEN", auth_client.access_token, token_expiry)
+            database.update_quickbooks_token("QB_REFRESH_TOKEN", auth_client.refresh_token)
+            
+            # Finish progress
+            progress_bar.progress(100)
+            
+            # Show success and details
+            st.success("✅ Successfully connected to QuickBooks!")
+            
+            with st.expander("Connection Details"):
+                st.info(f"Company ID: {realm_id}")
+                st.info(f"Access Token: {auth_client.access_token[:10]}...")
+                st.info(f"Token expires in: {auth_client.expires_in} seconds")
                 
-                # Clear query params and trigger the redirect
+            # Clear the query parameters to prevent reuse
+            if st.button("Continue to Application", key="success_continue"):
                 st.query_params.clear()
                 st.rerun()
-                st.stop()
+                
+        except Exception as e:
+            # Comprehensive error handling
+            import traceback
+            error_msg = str(e)
+            print(f"QuickBooks Authentication Error: {error_msg}")
+            print(traceback.format_exc())
             
-            # Create marker file and track in session to prevent duplicate processing
-            with open(auth_state_path, 'w') as f:
-                current_time = time.time()
-                f.write(f"Processing QuickBooks auth code at {current_time}")
+            st.error(f"Authentication Error: {error_msg}")
             
-            st.session_state['processed_auth_codes'][code_hash] = current_time
-            
-            # ----- STEP 3: EXCHANGE AUTH CODE FOR TOKENS -----
-            print(f"Attempting to exchange authorization code for tokens at {current_time}")
-            try:
-                # Initialize the auth client
-                auth_client = AuthClient(
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    redirect_uri=redirect_uri,
-                    environment=environment
-                )
+            # Special handling for invalid_grant errors
+            if "invalid_grant" in error_msg.lower():
+                st.warning("The authorization code has expired or already been used.")
+                st.info("Each QuickBooks authorization code can only be used once and expires after 10 minutes.")
                 
-                # Exchange code for tokens - this is where most errors occur
-                print(f"Calling get_bearer_token() with auth_code (first 10 chars): {auth_code[:10]}...")
+                with st.expander("Why does this happen?"):
+                    st.markdown("""
+                    ### Common reasons for 'Invalid authorization code' errors
+                    
+                    1. **Code already used**: The authorization code was already exchanged for tokens
+                    2. **Code expired**: More than 10 minutes passed since the code was issued
+                    3. **Browser issue**: Your browser may have made multiple requests with the same code
+                    
+                    Try starting a new authorization by clicking the button below.
+                    """)
+                    
+            # Options to try again or continue
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("New Authorization", key="error_new_auth"):
+                    auth_url = get_quickbooks_auth_url()
+                    if auth_url:
+                        st.markdown(f"""
+                        <script>
+                            window.top.location.href = "{auth_url}";
+                        </script>
+                        """, unsafe_allow_html=True)
                 
-                # Ensure we pass the realm_id directly as per library requirements
-                # Some versions of the library require this, even if not documented well
-                auth_client.get_bearer_token(
-                    auth_code=auth_code,
-                    realm_id=realm_id
-                )
-                print("Token exchange successful")
-                
-                # Save tokens and realm ID to database
-                database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
-                token_expiration = time.time() + auth_client.expires_in
-                database.update_quickbooks_token("QB_ACCESS_TOKEN", auth_client.access_token, token_expiration)
-                database.update_quickbooks_token("QB_REFRESH_TOKEN", auth_client.refresh_token)
-                
-                # Clean up the state file
-                if os.path.exists(auth_state_path):
-                    os.remove(auth_state_path)
-                
-                # Prepare success data for redirect pattern
-                st.session_state.qb_auth_result = {
-                    'success': True,
-                    'message': "QuickBooks authentication successful!",
-                    'details': {
-                        'Connected Company ID': realm_id,
-                        'Access Token': auth_client.access_token[:10] + "...",
-                        'Token expires in': f"{auth_client.expires_in} seconds"
-                    }
-                }
-                
-            except AuthClientError as auth_error:
-                # Handle QBO-specific auth errors
-                error_detail = str(auth_error)
-                print(f"AuthClientError occurred: {error_detail}")
-                
-                # Clean up
-                if os.path.exists(auth_state_path):
-                    os.remove(auth_state_path)
-                
-                # Prepare error data for redirect pattern
-                st.session_state.qb_auth_result = {
-                    'success': False,
-                    'message': error_detail
-                }
-                
-            except Exception as e:
-                # Handle any other unexpected errors
-                error_detail = str(e)
-                print(f"Unexpected error during token exchange: {error_detail}")
-                
-                # Clean up
-                if os.path.exists(auth_state_path):
-                    os.remove(auth_state_path)
-                
-                # Prepare error data for redirect pattern
-                st.session_state.qb_auth_result = {
-                    'success': False,
-                    'message': f"Unexpected error: {error_detail}"
-                }
-            
-            # Set flag to trigger the redirect in the next app run
-            st.session_state.qb_post_auth_redirect = True
-            
-            # Clear query params and trigger the redirect
-            st.query_params.clear()
-            st.rerun()
-            
-        except Exception as init_error:
-            # Handle initialization errors
-            error_detail = str(init_error)
-            print(f"Initialization error: {error_detail}")
-            
-            # Prepare error data for redirect pattern
-            st.session_state.qb_auth_result = {
-                'success': False,
-                'message': f"Failed to initialize QuickBooks authentication: {error_detail}"
-            }
-            st.session_state.qb_post_auth_redirect = True
-            
-            # Clear query params and trigger the redirect
-            st.query_params.clear()
-            st.rerun()
-        
-        # Prevent the rest of the app from loading during auth
+            with col2:
+                if st.button("Continue Without QuickBooks", key="error_continue"):
+                    st.query_params.clear()
+                    st.rerun()
+                    
+        # Stop the rest of the app from processing during OAuth callback
         st.stop()
     
     # Initialize settings update flags
