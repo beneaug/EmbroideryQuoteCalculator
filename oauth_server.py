@@ -31,6 +31,11 @@ logger = logging.getLogger('qb_oauth_server')
 # Initialize Flask app
 app = Flask(__name__)
 
+@app.route('/')
+def index():
+    """Home route returns a simple message"""
+    return "QuickBooks OAuth Server is running. The /callback endpoint is used for OAuth processing."
+
 @app.route('/callback')
 def oauth_callback():
     """
@@ -94,12 +99,29 @@ def oauth_callback():
         logger.info(f"Access token received (first 5 chars): {auth_client.access_token[:5]}...")
         logger.info(f"Token expires in: {auth_client.expires_in} seconds")
         
-        # Save the tokens in the database
+        # Save the tokens in the database with enhanced logging
         logger.info(f"Saving tokens to database...")
+        
+        # Save realm ID
+        logger.info(f"Saving realm ID: {realm_id}")
         database.update_setting("quickbooks_settings", "QB_REALM_ID", realm_id)
+        
+        # Save access token with expiry
         token_expiry = time.time() + auth_client.expires_in
-        database.update_quickbooks_token("QB_ACCESS_TOKEN", auth_client.access_token, token_expiry)
-        database.update_quickbooks_token("QB_REFRESH_TOKEN", auth_client.refresh_token)
+        logger.info(f"Saving access token (length: {len(auth_client.access_token)}) with expiry: {token_expiry}")
+        token_result = database.update_quickbooks_token("QB_ACCESS_TOKEN", auth_client.access_token, token_expiry)
+        logger.info(f"Access token save result: {token_result}")
+        
+        # Save refresh token
+        logger.info(f"Saving refresh token (length: {len(auth_client.refresh_token)})")
+        refresh_result = database.update_quickbooks_token("QB_REFRESH_TOKEN", auth_client.refresh_token)
+        logger.info(f"Refresh token save result: {refresh_result}")
+        
+        # Verify tokens were saved correctly
+        qb_settings = database.get_quickbooks_settings()
+        access_token_saved = qb_settings.get('QB_ACCESS_TOKEN', {}).get('value', '')
+        refresh_token_saved = qb_settings.get('QB_REFRESH_TOKEN', {}).get('value', '')
+        logger.info(f"Verification - Access token saved: {bool(access_token_saved)}, Refresh token saved: {bool(refresh_token_saved)}")
         
         # Redirect back to the main app with success message
         logger.info(f"Redirecting user back to main application...")

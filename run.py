@@ -27,26 +27,59 @@ def run_streamlit_app():
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        universal_newlines=True
+        universal_newlines=True,
+        bufsize=1  # Line buffered
     )
     
     # Stream the output to the console
-    for line in process.stdout:
-        sys.stdout.write(f"[Streamlit] {line}")
+    def stream_output():
+        if not process or not process.stdout:
+            logger.error("Streamlit process or stdout is None, cannot stream output")
+            return
+            
+        while True:
+            try:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    sys.stdout.write(f"[Streamlit] {line}")
+                    sys.stdout.flush()
+            except Exception as e:
+                logger.error(f"Error reading Streamlit output: {str(e)}")
+                break
     
-    # If we get here, the process has terminated
-    logger.warning("Streamlit process terminated")
-    return process.wait()
+    # Create a thread to handle the output streaming
+    import threading
+    output_thread = threading.Thread(target=stream_output)
+    output_thread.daemon = True
+    output_thread.start()
+    
+    # Return the process object so it can be monitored
+    return process
 
 def run_oauth_server():
     """Run the Flask OAuth server on port 8000"""
     logger.info("Starting OAuth callback server...")
     
-    # Import the Flask app from oauth_server and run it
-    from oauth_server import app
-    
-    # Run the Flask app without the built-in reloader (since we're managing it)
-    app.run(host='0.0.0.0', port=8000, use_reloader=False, debug=False)
+    try:
+        # Import the Flask app from oauth_server
+        from oauth_server import app
+        
+        # First, ensure the database has the required QuickBooks settings table
+        import database
+        database.create_quickbooks_table_if_missing()
+        logger.info("QuickBooks settings table verified")
+        
+        # Run the Flask app without the built-in reloader (since we're managing it)
+        logger.info("Starting OAuth server on port 8000")
+        app.run(host='0.0.0.0', port=8000, use_reloader=False, debug=False)
+    except Exception as e:
+        logger.error(f"Error starting OAuth server: {str(e)}", exc_info=True)
+        # Sleep briefly to prevent immediate restart if there's a critical error
+        import time
+        time.sleep(2)
+        raise
 
 if __name__ == "__main__":
     logger.info("Starting Embroidery Quoting Tool...")

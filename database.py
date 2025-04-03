@@ -367,13 +367,20 @@ def update_quickbooks_token(token_type, token_value, token_expires_at=None):
     print(f"Updating QuickBooks token: {token_type}, Value: {value_preview}, Expires: {token_expires_at}")
     
     try:
-        # Format token_expires_at if it's a timestamp (epoch seconds)
-        if token_expires_at and isinstance(token_expires_at, (int, float)):
-            from datetime import datetime
-            # Convert from epoch seconds to datetime
-            token_expires_dt = datetime.fromtimestamp(token_expires_at)
-            print(f"Converting expiration from timestamp {token_expires_at} to datetime: {token_expires_dt}")
-            token_expires_at = token_expires_dt
+        # The token_expires_at should remain as a float (epoch time) for storage
+        # No conversion needed since our database schema expects FLOAT for token_expires_at
+        # Just ensure it's a float if provided
+        if token_expires_at is not None:
+            token_expires_at = float(token_expires_at)
+            print(f"Using expiration timestamp: {token_expires_at}")
+            
+        # This commented code was causing issues - we want to store as epoch timestamp, not datetime
+        # if token_expires_at and isinstance(token_expires_at, (int, float)):
+        #     from datetime import datetime
+        #     # Convert from epoch seconds to datetime
+        #     token_expires_dt = datetime.fromtimestamp(token_expires_at)
+        #     print(f"Converting expiration from timestamp {token_expires_at} to datetime: {token_expires_dt}")
+        #     token_expires_at = token_expires_dt
             
         with get_connection() as conn:
             try:
